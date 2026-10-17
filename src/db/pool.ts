@@ -20,6 +20,7 @@ const sslConfig = needsSsl
 
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
+  options: '-c search_path=public,extensions',
   ...(sslConfig ? { ssl: sslConfig } : {}),
   ...(isServerless ? { max: 5, idleTimeoutMillis: 10000 } : {}),
 });

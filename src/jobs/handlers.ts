@@ -122,133 +122,264 @@ export async function importUsersCsv(csv: string, actorId?: string, jobId?: stri
     errorSummary[category] = (errorSummary[category] ?? 0) + 1;
   };
 
-    // Process in batches of 250 within a single chunk transaction using SAVEPOINT per row
-    const CHUNK_SIZE = 250;
+    // Process in batches of 100 with high-performance multi-row upsert
+    const CHUNK_SIZE = 100;
     for (let c = 0; c < total; c += CHUNK_SIZE) {
       const chunk = rawRows.slice(c, c + CHUNK_SIZE);
 
-      await tx(async (dbClient) => {
-        for (let i = 0; i < chunk.length; i++) {
-          const rowNo = c + i + 2; // header is row 1
-          const f = extractMappedFields(chunk[i]);
+      interface ValidRow {
+        rowNo: number;
+        email: string;
+        name: string;
+        dept: string | null;
+        branch: string | null;
+        degree: string | null;
+        rollNo: string | null;
+        twelveDigitRollNo: string | null;
+        year: number | null;
+        semester: number | null;
+        section: number | null;
+        groupNo: number | null;
+        batchNo: number | null;
+        batchYear: number | null;
+        empId: string | null;
+        designation: string | null;
+        mobileNo: string | null;
+      }
 
-          // Fallback: if email column is empty, derive from roll number
-          let email = f.email ? f.email.toLowerCase() : '';
-          if (!email && f.roll_no) {
-            email = `${f.roll_no.toLowerCase()}@nsut.ac.in`;
-          }
+      const validRows: ValidRow[] = [];
+      const seenEmailsInChunk = new Set<string>();
+      let hasDuplicateEmailInChunk = false;
 
-          if (!email) {
-            recordError(rowNo, 'MISSING_EMAIL', 'Email address is required');
-            continue;
-          }
+      for (let i = 0; i < chunk.length; i++) {
+        const rowNo = c + i + 2; // header is row 1
+        const f = extractMappedFields(chunk[i]);
 
-          if (!isDomainAllowed(email)) {
-            recordError(rowNo, 'INVALID_DOMAIN', `email must end with @nsut.ac.in or @nsit.ac.in`, email);
-            continue;
-          }
-
-          if (!f.name) {
-            recordError(rowNo, 'MISSING_NAME', 'name required', email);
-            continue;
-          }
-
-          // Academic coordinate derivations - no default fallbacks, missing fields remain null
-          const semDigits = f.semester ? f.semester.replace(/\D/g, '') : '';
-          const semester = semDigits ? Math.max(1, Math.min(10, parseInt(semDigits, 10))) : null;
-
-          const yearDigits = f.year ? f.year.replace(/\D/g, '') : '';
-          let year: number | null = yearDigits ? Math.max(1, Math.min(5, parseInt(yearDigits, 10))) : null;
-          if (year === null && semester !== null) {
-            year = Math.max(1, Math.min(5, Math.ceil(semester / 2)));
-          }
-
-          const degree = f.degree ? f.degree.trim() : null;
-          const dept = f.dept ? f.dept.trim() : (f.department ? f.department.trim() : null);
-          const branch = f.branch ? f.branch.trim() : null;
-          const rollNo = f.roll_no ? f.roll_no.toUpperCase() : null;
-          const empId = f.employee_id ? f.employee_id.trim() : null;
-          const designation = f.designation ? f.designation.trim() : null;
-          const mobileNo = f.mobile_no ? f.mobile_no.trim() : null;
-
-          // Twelve-digit roll number (BIGINT)
-          const clean12 = f.twelve_digit_roll_no ? f.twelve_digit_roll_no.replace(/\D/g, '') : '';
-          const twelveDigitRollNo = clean12 ? clean12 : null;
-
-          // Derive batch_year strictly from roll number or explicit batch_year column
-          let batchYear: number | null = null;
-          if (rollNo) {
-            const m = rollNo.match(/^(\d{4})/);
-            if (m) batchYear = parseInt(m[1], 10);
-          }
-          if (!batchYear && twelveDigitRollNo) {
-            const m12 = twelveDigitRollNo.match(/^(\d{4})/);
-            if (m12) batchYear = parseInt(m12[1], 10);
-          }
-          if (!batchYear && f.batch_year) {
-            const parsedBatch = parseInt(f.batch_year, 10);
-            if (!isNaN(parsedBatch) && parsedBatch > 2000) batchYear = parsedBatch;
-          }
-
-          const secDigits = f.section ? f.section.replace(/\D/g, '') : '';
-          const section = secDigits ? parseInt(secDigits, 10) : null;
-
-          const grpDigits = f.group_no ? f.group_no.replace(/\D/g, '') : '';
-          const groupNo = grpDigits ? parseInt(grpDigits, 10) : null;
-
-          const batchDigits = f.batch_no ? f.batch_no.replace(/\D/g, '') : '';
-          const batchNo = batchDigits ? parseInt(batchDigits, 10) : null;
-
-          await dbClient.query('SAVEPOINT row_sp');
-          try {
-            const existing = (await dbClient.query(`SELECT id FROM users WHERE email=$1`, [email])).rows[0];
-            const id = existing?.id ?? newId('usr');
-
-            if (existing) {
-              await dbClient.query(
-                `UPDATE users SET
-                   name = $2,
-                   dept = COALESCE($3, dept),
-                   branch = COALESCE($4, branch),
-                   degree = COALESCE($5, degree),
-                   roll_no = COALESCE($6, roll_no),
-                   twelve_digit_roll_no = COALESCE($7, twelve_digit_roll_no),
-                   year = COALESCE($8, year),
-                   semester = COALESCE($9, semester),
-                   section = COALESCE($10, section),
-                   group_no = COALESCE($11, group_no),
-                   batch_no = COALESCE($12, batch_no),
-                   batch_year = COALESCE($13, batch_year),
-                   employee_id = COALESCE($14, employee_id),
-                   designation = COALESCE($15, designation),
-                   mobile_no = COALESCE($16, mobile_no),
-                   acl_version = COALESCE(acl_version, 1) + 1,
-                   updated_at = now()
-                 WHERE id = $1`,
-                [id, f.name, dept, branch, degree, rollNo, twelveDigitRollNo, year, semester, section, groupNo, batchNo, batchYear, empId, designation, mobileNo],
-              );
-              updated++;
-            } else {
-              await dbClient.query(
-                `INSERT INTO users (
-                   id, email, name,
-                   dept, branch, degree, roll_no, twelve_digit_roll_no,
-                   year, semester, section, group_no, batch_no, batch_year,
-                   employee_id, designation, mobile_no
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-                [id, email, f.name, dept, branch, degree, rollNo, twelveDigitRollNo, year, semester, section, groupNo, batchNo, batchYear, empId, designation, mobileNo],
-              );
-              created++;
-            }
-            await dbClient.query('RELEASE SAVEPOINT row_sp');
-          } catch (e: any) {
-            await dbClient.query('ROLLBACK TO SAVEPOINT row_sp');
-            await dbClient.query('RELEASE SAVEPOINT row_sp');
-            const errDetail = e.code === '23505' ? `duplicate value (${e.detail ?? 'unique violation'})` : e.message;
-            recordError(rowNo, 'DATABASE_ERROR', errDetail, email);
-          }
+        // Fallback: if email column is empty, derive from roll number
+        let email = f.email ? f.email.toLowerCase() : '';
+        if (!email && f.roll_no) {
+          email = `${f.roll_no.toLowerCase()}@nsut.ac.in`;
         }
-      });
+
+        if (!email) {
+          recordError(rowNo, 'MISSING_EMAIL', 'Email address is required');
+          continue;
+        }
+
+        if (!isDomainAllowed(email)) {
+          recordError(rowNo, 'INVALID_DOMAIN', `email must end with @nsut.ac.in or @nsit.ac.in`, email);
+          continue;
+        }
+
+        if (!f.name) {
+          recordError(rowNo, 'MISSING_NAME', 'name required', email);
+          continue;
+        }
+
+        if (seenEmailsInChunk.has(email)) {
+          hasDuplicateEmailInChunk = true;
+        }
+        seenEmailsInChunk.add(email);
+
+        // Academic coordinate derivations - no default fallbacks, missing fields remain null
+        const semDigits = f.semester ? f.semester.replace(/\D/g, '') : '';
+        const semester = semDigits ? Math.max(1, Math.min(10, parseInt(semDigits, 10))) : null;
+
+        const yearDigits = f.year ? f.year.replace(/\D/g, '') : '';
+        let year: number | null = yearDigits ? Math.max(1, Math.min(5, parseInt(yearDigits, 10))) : null;
+        if (year === null && semester !== null) {
+          year = Math.max(1, Math.min(5, Math.ceil(semester / 2)));
+        }
+
+        const degree = f.degree ? f.degree.trim() : null;
+        const dept = f.dept ? f.dept.trim() : (f.department ? f.department.trim() : null);
+        const branch = f.branch ? f.branch.trim() : null;
+        const rollNo = f.roll_no ? f.roll_no.toUpperCase() : null;
+        const empId = f.employee_id ? f.employee_id.trim() : null;
+        const designation = f.designation ? f.designation.trim() : null;
+        const mobileNo = f.mobile_no ? f.mobile_no.trim() : null;
+
+        // Twelve-digit roll number (BIGINT)
+        const clean12 = f.twelve_digit_roll_no ? f.twelve_digit_roll_no.replace(/\D/g, '') : '';
+        const twelveDigitRollNo = clean12 ? clean12 : null;
+
+        // Derive batch_year strictly from roll number or explicit batch_year column
+        let batchYear: number | null = null;
+        if (rollNo) {
+          const m = rollNo.match(/^(\d{4})/);
+          if (m) batchYear = parseInt(m[1], 10);
+        }
+        if (!batchYear && twelveDigitRollNo) {
+          const m12 = twelveDigitRollNo.match(/^(\d{4})/);
+          if (m12) batchYear = parseInt(m12[1], 10);
+        }
+        if (!batchYear && f.batch_year) {
+          const parsedBatch = parseInt(f.batch_year, 10);
+          if (!isNaN(parsedBatch) && parsedBatch > 2000) batchYear = parsedBatch;
+        }
+
+        const secDigits = f.section ? f.section.replace(/\D/g, '') : '';
+        const section = secDigits ? parseInt(secDigits, 10) : null;
+
+        const grpDigits = f.group_no ? f.group_no.replace(/\D/g, '') : '';
+        const groupNo = grpDigits ? parseInt(grpDigits, 10) : null;
+
+        const batchDigits = f.batch_no ? f.batch_no.replace(/\D/g, '') : '';
+        const batchNo = batchDigits ? parseInt(batchDigits, 10) : null;
+
+        validRows.push({
+          rowNo,
+          email,
+          name: f.name,
+          dept,
+          branch,
+          degree,
+          rollNo,
+          twelveDigitRollNo,
+          year,
+          semester,
+          section,
+          groupNo,
+          batchNo,
+          batchYear,
+          empId,
+          designation,
+          mobileNo,
+        });
+      }
+
+      if (validRows.length > 0) {
+        await tx(async (dbClient) => {
+          let batchSuccess = false;
+
+          // Attempt fast multi-row batch upsert if no duplicate emails in this batch
+          if (!hasDuplicateEmailInChunk) {
+            try {
+              const valuePlaceholders: string[] = [];
+              const params: any[] = [];
+              let pIdx = 1;
+
+              for (const vr of validRows) {
+                valuePlaceholders.push(
+                  `($${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, $${pIdx + 8}, $${pIdx + 9}, $${pIdx + 10}, $${pIdx + 11}, $${pIdx + 12}, $${pIdx + 13}, $${pIdx + 14}, $${pIdx + 15}, $${pIdx + 16})`
+                );
+                params.push(
+                  newId('usr'),
+                  vr.email,
+                  vr.name,
+                  vr.dept,
+                  vr.branch,
+                  vr.degree,
+                  vr.rollNo,
+                  vr.twelveDigitRollNo,
+                  vr.year,
+                  vr.semester,
+                  vr.section,
+                  vr.groupNo,
+                  vr.batchNo,
+                  vr.batchYear,
+                  vr.empId,
+                  vr.designation,
+                  vr.mobileNo,
+                );
+                pIdx += 17;
+              }
+
+              const batchSql = `
+                INSERT INTO users (
+                  id, email, name,
+                  dept, branch, degree, roll_no, twelve_digit_roll_no,
+                  year, semester, section, group_no, batch_no, batch_year,
+                  employee_id, designation, mobile_no
+                ) VALUES ${valuePlaceholders.join(', ')}
+                ON CONFLICT (email) DO UPDATE SET
+                  name = EXCLUDED.name,
+                  dept = COALESCE(EXCLUDED.dept, users.dept),
+                  branch = COALESCE(EXCLUDED.branch, users.branch),
+                  degree = COALESCE(EXCLUDED.degree, users.degree),
+                  roll_no = COALESCE(EXCLUDED.roll_no, users.roll_no),
+                  twelve_digit_roll_no = COALESCE(EXCLUDED.twelve_digit_roll_no, users.twelve_digit_roll_no),
+                  year = COALESCE(EXCLUDED.year, users.year),
+                  semester = COALESCE(EXCLUDED.semester, users.semester),
+                  section = COALESCE(EXCLUDED.section, users.section),
+                  group_no = COALESCE(EXCLUDED.group_no, users.group_no),
+                  batch_no = COALESCE(EXCLUDED.batch_no, users.batch_no),
+                  batch_year = COALESCE(EXCLUDED.batch_year, users.batch_year),
+                  employee_id = COALESCE(EXCLUDED.employee_id, users.employee_id),
+                  designation = COALESCE(EXCLUDED.designation, users.designation),
+                  mobile_no = COALESCE(EXCLUDED.mobile_no, users.mobile_no),
+                  acl_version = COALESCE(users.acl_version, 1) + 1,
+                  updated_at = now()
+                RETURNING id, (xmax = 0) AS is_inserted
+              `;
+
+              const res = await dbClient.query(batchSql, params);
+              for (const r of res.rows) {
+                if (r.is_inserted) created++;
+                else updated++;
+              }
+              batchSuccess = true;
+            } catch {
+              // Batch encountered a conflict (e.g. duplicate roll_no or employee_id); fall back to row-by-row
+              batchSuccess = false;
+            }
+          }
+
+          // Fallback to resilient row-by-row with savepoint if batch failed or had intra-batch email duplicates
+          if (!batchSuccess) {
+            for (const vr of validRows) {
+              await dbClient.query('SAVEPOINT row_sp');
+              try {
+                const existing = (await dbClient.query(`SELECT id FROM users WHERE email=$1`, [vr.email])).rows[0];
+                const id = existing?.id ?? newId('usr');
+
+                if (existing) {
+                  await dbClient.query(
+                    `UPDATE users SET
+                       name = $2,
+                       dept = COALESCE($3, dept),
+                       branch = COALESCE($4, branch),
+                       degree = COALESCE($5, degree),
+                       roll_no = COALESCE($6, roll_no),
+                       twelve_digit_roll_no = COALESCE($7, twelve_digit_roll_no),
+                       year = COALESCE($8, year),
+                       semester = COALESCE($9, semester),
+                       section = COALESCE($10, section),
+                       group_no = COALESCE($11, group_no),
+                       batch_no = COALESCE($12, batch_no),
+                       batch_year = COALESCE($13, batch_year),
+                       employee_id = COALESCE($14, employee_id),
+                       designation = COALESCE($15, designation),
+                       mobile_no = COALESCE($16, mobile_no),
+                       acl_version = COALESCE(acl_version, 1) + 1,
+                       updated_at = now()
+                     WHERE id = $1`,
+                    [id, vr.name, vr.dept, vr.branch, vr.degree, vr.rollNo, vr.twelveDigitRollNo, vr.year, vr.semester, vr.section, vr.groupNo, vr.batchNo, vr.batchYear, vr.empId, vr.designation, vr.mobileNo],
+                  );
+                  updated++;
+                } else {
+                  await dbClient.query(
+                    `INSERT INTO users (
+                       id, email, name,
+                       dept, branch, degree, roll_no, twelve_digit_roll_no,
+                       year, semester, section, group_no, batch_no, batch_year,
+                       employee_id, designation, mobile_no
+                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+                    [id, vr.email, vr.name, vr.dept, vr.branch, vr.degree, vr.rollNo, vr.twelveDigitRollNo, vr.year, vr.semester, vr.section, vr.groupNo, vr.batchNo, vr.batchYear, vr.empId, vr.designation, vr.mobileNo],
+                  );
+                  created++;
+                }
+                await dbClient.query('RELEASE SAVEPOINT row_sp');
+              } catch (e: any) {
+                await dbClient.query('ROLLBACK TO SAVEPOINT row_sp');
+                await dbClient.query('RELEASE SAVEPOINT row_sp');
+                const errDetail = e.code === '23505' ? `duplicate value (${e.detail ?? 'unique violation'})` : e.message;
+                recordError(vr.rowNo, 'DATABASE_ERROR', errDetail, vr.email);
+              }
+            }
+          }
+        });
+      }
 
       if (jobId) {
         await updateJobProgress({

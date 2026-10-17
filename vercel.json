@@ -3,6 +3,7 @@
   "version": 2,
   "buildCommand": "npm run build:vercel",
   "outputDirectory": "admin-console/dist",
+  "regions": ["bom1"],
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,

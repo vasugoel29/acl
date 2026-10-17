@@ -1,0 +1,8 @@
+node_modules
+dist
+admin-console
+.git
+.env
+keys
+*.log
+test

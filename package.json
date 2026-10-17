@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
-    "build:vercel": "npm run build && npm --prefix admin-console install && npm --prefix admin-console run build",
+    "build:vercel": "npm run build && npm --prefix admin-console install --include=dev && npm --prefix admin-console run build",
     "start": "tsx src/server.ts",
     "start:prod": "node dist/src/server.js",
     "worker": "tsx src/jobs/worker.ts",

@@ -71,17 +71,7 @@ export async function oidcRoutes(app: FastifyInstance) {
   });
 
   // ---- /authorize ----
-  app.get(
-    '/authorize',
-    {
-      config: {
-        rateLimit: {
-          max: 120,
-          timeWindow: '1 minute',
-        },
-      },
-    },
-    async (req, reply) => {
+  app.get('/authorize', async (req, reply) => {
     const q = req.query as Record<string, string>;
     const client = q.client_id ? await appById(q.client_id) : null;
     // Never redirect to an unvalidated URI: exact-match only.
@@ -159,7 +149,7 @@ export async function oidcRoutes(app: FastifyInstance) {
   });
 
   // ---- /token ----
-  app.post('/token', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.post('/token', async (req, reply) => {
     reply.header('cache-control', 'no-store');
     const b = (req.body ?? {}) as Record<string, string>;
     const client = await authenticateClient(req, b.client_id, b.client_secret);
@@ -324,7 +314,7 @@ export async function oidcRoutes(app: FastifyInstance) {
   });
 
   // ---- Account status & ACL version freshness ----
-  app.get('/acl-version/:sub', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+  app.get('/acl-version/:sub', async (req, reply) => {
     const { sub } = req.params as { sub: string };
     // Reject non-ULID subject formats to prevent email/roll_no enumeration
     if (!/^usr_[0-9A-Z]{26}$/.test(sub)) return reply.code(404).send({ error: 'not_found' });

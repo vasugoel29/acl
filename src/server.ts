@@ -39,13 +39,15 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   });
   app.addContentTypeParser('text/csv', { parseAs: 'string', bodyLimit: 50 * 1024 * 1024 }, (_req, body, done) => done(null, body));
 
-  // NAT-aware rate limiting: key by session/token fingerprint + IP so shared campus NAT IPs don't throttle all students
-  await app.register(rateLimit, {
-    global: true,
-    max: 300,
-    timeWindow: '1 minute',
-    keyGenerator: (req) => req.ip,
-  });
+  // Anti-DoS flood protection: high threshold so normal/bursty campus traffic is never throttled
+  if (config.enableRateLimit) {
+    await app.register(rateLimit, {
+      global: true,
+      max: config.rateLimitMax,
+      timeWindow: '1 minute',
+      keyGenerator: (req) => req.ip,
+    });
+  }
 
   // Allow credentials (cookies) and CSRF custom header from Admin Console
   await app.register(cors, {

@@ -56,6 +56,8 @@ export const config = {
   cronSecret: env.CRON_SECRET,
   bootstrapAdminEmail: env.BOOTSTRAP_ADMIN_EMAIL,
   internalAppId: 'ACL',
+  enableRateLimit: env.ENABLE_RATE_LIMIT !== 'false' && env.RATE_LIMIT_DISABLED !== 'true',
+  rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 5000),
 };
 
 /** Validate required security settings before starting in production. */

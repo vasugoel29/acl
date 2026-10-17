@@ -5,7 +5,7 @@ import { redis, keys } from '../redis.js';
 import { randomToken, safeCompareHex, sha256 } from '../util.js';
 import { audit } from '../audit.js';
 import { jwks, verifyJwt } from '../tokens/jwt.js';
-import { buildUserInfo, clearUserDeny, getUser, issueAccessToken, issueIdToken, denyJti } from '../tokens/access.js';
+import { buildUserInfo, getUser, issueAccessToken, issueIdToken, denyJti } from '../tokens/access.js';
 import { createSession, revokeAllForUser, revokeRefresh, rotateRefresh } from '../tokens/refresh.js';
 import { DomainError, googleAuthUrl, googleExchange, pkce } from '../auth/google.js';
 import { appById, upsertFromGoogle } from '../auth/users.js';
@@ -71,7 +71,17 @@ export async function oidcRoutes(app: FastifyInstance) {
   });
 
   // ---- /authorize ----
-  app.get('/authorize', async (req, reply) => {
+  app.get(
+    '/authorize',
+    {
+      config: {
+        rateLimit: {
+          max: 120,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    async (req, reply) => {
     const q = req.query as Record<string, string>;
     const client = q.client_id ? await appById(q.client_id) : null;
     // Never redirect to an unvalidated URI: exact-match only.
@@ -165,7 +175,6 @@ export async function oidcRoutes(app: FastifyInstance) {
 
       const user = await getUser(row.user_id);
       if (!user || user.status !== 'ACTIVE') return oauthError(reply, 400, 'invalid_grant');
-      await clearUserDeny(user.id);
       const [at, session, idt] = await Promise.all([
         issueAccessToken(user, appId),
         createSession({ userId: user.id, appId, userAgent: req.headers['user-agent'], ip: req.ip }),
@@ -202,7 +211,6 @@ export async function oidcRoutes(app: FastifyInstance) {
       if (!r.ok) return oauthError(reply, 400, 'invalid_grant', r.reason);
       const user = await getUser(r.userId);
       if (!user || user.status !== 'ACTIVE') return oauthError(reply, 400, 'invalid_grant');
-      await clearUserDeny(user.id);
       const at = await issueAccessToken(user, appId);
       if (appId === config.internalAppId) {
         reply.setCookie('acl_admin_session', at.token, {
@@ -232,11 +240,13 @@ export async function oidcRoutes(app: FastifyInstance) {
     try {
       const claims = await verifyJwt(token);
       if (claims.token_use === 'id') return oauthError(reply, 401, 'invalid_token', 'id_token not allowed');
-      const [jtiDenied, userDenied] = await Promise.all([
+      const [jtiDenied, userRevokedAtStr] = await Promise.all([
         redis.exists(keys.denyJti(String(claims.jti))),
-        redis.exists(keys.denyUser(String(claims.sub))),
+        redis.get(keys.denyUser(String(claims.sub))),
       ]);
-      if (jtiDenied || userDenied) return oauthError(reply, 401, 'invalid_token', 'revoked');
+      const tokenIat = Number(claims.iat ?? 0);
+      const isUserRevoked = userRevokedAtStr !== null && tokenIat <= Number(userRevokedAtStr);
+      if (jtiDenied || isUserRevoked) return oauthError(reply, 401, 'invalid_token', 'revoked');
       const user = await getUser(String(claims.sub));
       if (!user || user.status !== 'ACTIVE') return oauthError(reply, 401, 'invalid_token');
       const aud = String(Array.isArray(claims.aud) ? claims.aud[0] : claims.aud);
@@ -254,11 +264,13 @@ export async function oidcRoutes(app: FastifyInstance) {
     try {
       const claims = await verifyJwt(b.token, client.app.id); // audience-bound to the caller
       if (claims.token_use === 'id') return { active: false };
-      const [jtiDenied, userDenied] = await Promise.all([
+      const [jtiDenied, userRevokedAtStr] = await Promise.all([
         redis.exists(keys.denyJti(String(claims.jti))),
-        redis.exists(keys.denyUser(String(claims.sub))),
+        redis.get(keys.denyUser(String(claims.sub))),
       ]);
-      if (jtiDenied || userDenied) return { active: false };
+      const tokenIat = Number(claims.iat ?? 0);
+      const isUserRevoked = userRevokedAtStr !== null && tokenIat <= Number(userRevokedAtStr);
+      if (jtiDenied || isUserRevoked) return { active: false };
       const user = await getUser(String(claims.sub));
       if (!user || user.status !== 'ACTIVE') return { active: false };
       if (claims.ver !== undefined && user.acl_version !== undefined && Number(claims.ver) < Number(user.acl_version)) {

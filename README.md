@@ -1,6 +1,6 @@
 # NSUT Identity & ACL Service
 
-Central login (Google SSO, `@nsut.ac.in` only), master directory and per-app permissions for NSUT campus apps. Implements [nsut-identity-acl-service.md](nsut-identity-acl-service.md).
+Central login (Google SSO, `@nsut.ac.in` and `@nsit.ac.in`), master directory and per-app permissions for NSUT campus apps. Implements [nsut-identity-acl-service.md](nsut-identity-acl-service.md).
 
 ## Run locally
 
@@ -8,7 +8,7 @@ Central login (Google SSO, `@nsut.ac.in` only), master directory and per-app per
 docker compose up -d                 # Postgres (:5433) + Redis (:6379)
 cp .env.example .env                 # set BOOTSTRAP_ADMIN_EMAIL=you@nsut.ac.in
 npm install
-npm run migrate && npm run seed      # schema + CRAS/HAJIRI/EVENTS/ACL catalog + super admin
+npm run migrate && npm run seed      # schema + CRAS/ACL catalog + super admin
 npm run dev                          # API on :4000 (queue worker runs inline)
 
 cd admin-console && npm install && npm run dev   # console on :5173
@@ -31,7 +31,7 @@ npm run typecheck
 | `src/routes/admin.ts` | Directory, apps/roles, assignments, `/v1/authorize/check`, audit |
 | `src/acl/engine.ts` | Effective-permission + scope resolution |
 | `src/tokens/` | ES256 keys/JWKS, access tokens, rotating refresh tokens |
-| `src/jobs/` | BullMQ: CSV import, semester rollover, hourly role-expiry sweep |
+| `src/jobs/` | BullMQ: CSV import, semester rollover, daily role-expiry sweep |
 | `sdk/index.ts` | `createAclClient()` for app developers (JWKS verify, `requirePermission`, `inScope`) |
 | `admin-console/` | React admin UI |
 
@@ -51,7 +51,7 @@ app.post('/book', acl.authenticate(), acl.requirePermission('rooms:book'), handl
 ## Behaviour worth knowing
 
 - **Scopes:** values may be arrays. The token's `scope` is a per-key union across scoped roles (a summary). For exact per-permission answers use `scopes_by_permission` from `/userinfo` or `POST /v1/authorize/check` (confidential apps only).
-- **Default roles:** roles flagged `is_default` apply implicitly to users with no assignment in that app (e.g. Hajiri `STUDENT`, scoped to the user's own roll number).
+- **Default roles:** roles flagged `is_default` apply implicitly to users with no assignment in that app (e.g. CRAS `VIEWER`).
 - **Revocation:** every role/profile change bumps `acl_version`; `/introspect` treats stale tokens as inactive; logout/revoke deny-lists the `jti`; suspending a user revokes all refresh tokens.
 - **Admin API** accepts only tokens issued for the internal `ACL` app; `APP_ADMIN` is scoped to specific apps and cannot grant `ACL` roles.
 - **Keys:** stored in `KEYS_FILE` (default `keys/signing.json`, git-ignored). Use a secret-manager mount in production.

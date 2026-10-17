@@ -208,7 +208,6 @@ export async function adminRoutes(app: FastifyInstance) {
       reply.clearCookie('acl_admin_refresh', { path: '/' });
       throw new HttpError(401, 'inactive user');
     }
-    await clearUserDeny(user.id);
     const at = await issueAccessToken(user, config.internalAppId);
     reply.setCookie('acl_admin_session', at.token, {
       path: '/',
@@ -577,7 +576,7 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     admin.post('/v1/users/export', async (req, reply) => {
-      if (!hasFullPiiAccess(req.admin!.access)) {
+      if (!checkPermission(req.admin!.access, 'users:export') && !checkPermission(req.admin!.access, 'admin:all')) {
         throw new HttpError(403, 'missing permission users:export');
       }
       const q = z.object({ dept: z.string().optional(), status: z.string().optional() }).parse(req.query ?? {});
@@ -852,10 +851,12 @@ export async function adminRoutes(app: FastifyInstance) {
           await c.query(`DELETE FROM role_permissions WHERE app_id=$1 AND role=$2`, [appId, r.role]);
           for (const p of r.permissions) await c.query(`INSERT INTO role_permissions (app_id,role,permission) VALUES ($1,$2,$3)`, [appId, r.role, p]);
         }
+        // Collect all users who currently have any role in this app before deletion
+        const allAppUsers = (await c.query(`SELECT DISTINCT user_id FROM user_app_roles WHERE app_id=$1`, [appId])).rows;
         // Remove roles that are no longer present for this application
         await c.query(`DELETE FROM app_roles WHERE app_id=$1 AND NOT (role = ANY($2))`, [appId, changedRoles]);
         await audit({ actorId: req.admin!.userId, action: 'ROLES_DEFINED', targetType: 'app', targetId: appId, appId, metadata: { roles: changedRoles } }, c);
-        return (await c.query(`SELECT DISTINCT user_id FROM user_app_roles WHERE app_id=$1 AND role = ANY($2)`, [appId, changedRoles])).rows;
+        return allAppUsers;
       });
       for (const u of affected) await bumpAndPublish(u.user_id); // role definition changed => tokens stale
       return reply.send({ ok: true });

@@ -1,27 +1,24 @@
 import { Queue, Worker, type Job } from 'bullmq';
-import { config } from '../config.js';
+import { createBullRedisConnection } from '../redis.js';
 import { importUsersCsv, roleExpirySweep, semesterRollover } from './handlers.js';
 import { exportUsersCsv } from './export.js';
 
 export const QUEUE = 'acl-jobs';
 
-function parseRedis() {
-  const u = new URL(config.redisUrl);
-  const dbPath = u.pathname && u.pathname.length > 1 ? Number.parseInt(u.pathname.slice(1), 10) : 0;
-  return {
-    host: u.hostname,
-    port: Number(u.port || 6379),
-    ...(u.username ? { username: decodeURIComponent(u.username) } : {}),
-    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
-    ...(Number.isFinite(dbPath) && dbPath > 0 ? { db: dbPath } : {}),
-    ...(u.protocol === 'rediss:' ? { tls: {} } : {}),
-    maxRetriesPerRequest: null as null,
-  };
-}
-
 let queue: Queue | null = null;
 export function getQueue() {
-  return (queue ??= new Queue(QUEUE, { connection: parseRedis() }));
+  return (queue ??= new Queue(QUEUE, {
+    connection: createBullRedisConnection(),
+    defaultJobOptions: {
+      removeOnComplete: {
+        age: 86400,
+        count: 1000,
+      },
+      removeOnFail: {
+        age: 7 * 86400,
+      },
+    },
+  }));
 }
 
 export function startWorker() {
@@ -41,9 +38,13 @@ export function startWorker() {
           throw new Error(`unknown job ${job.name}`);
       }
     },
-    { connection: parseRedis() },
+    { connection: createBullRedisConnection() },
   );
   // Hourly expiry sweep (idempotent scheduler upsert).
-  getQueue().upsertJobScheduler('expiry-sweep', { pattern: '0 * * * *' }, { name: 'expiry-sweep', data: {} });
+  getQueue()
+    .upsertJobScheduler('expiry-sweep', { pattern: '0 * * * *' }, { name: 'expiry-sweep', data: {} })
+    .catch((err) => {
+      console.error('Failed to upsert expiry-sweep job scheduler:', err);
+    });
   return worker;
 }

@@ -43,9 +43,10 @@ export class AclError extends Error {
 const arr = (v: ScopeValue) => (Array.isArray(v) ? v : [v]);
 
 export function createAclClient(opts: AclClientOptions) {
+  const base = opts.issuer.endsWith('/') ? opts.issuer : `${opts.issuer}/`;
   const keyset = opts.jwks
     ? createLocalJWKSet(opts.jwks)
-    : createRemoteJWKSet(new URL('/.well-known/jwks.json', opts.issuer), { cooldownDuration: 30_000 });
+    : createRemoteJWKSet(new URL('.well-known/jwks.json', base), { cooldownDuration: 30_000 });
   const doFetch = opts.fetchImpl ?? fetch;
 
   async function verify(token: string): Promise<AclClaims> {
@@ -59,11 +60,23 @@ export function createAclClient(opts: AclClientOptions) {
       throw new AclError(401, 'invalid token: id_token cannot be used as access_token');
     }
     if (opts.checkVersion) {
-      const r = await doFetch(new URL(`/acl-version/${payload.sub}`, opts.issuer));
-      if (r.ok) {
+      try {
+        const r = await doFetch(new URL(`acl-version/${encodeURIComponent(String(payload.sub))}`, base), {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!r.ok) {
+          throw new AclError(401, `version check failed with status ${r.status}`);
+        }
         const body = (await r.json()) as any;
         if (body.active === false || body.status === 'SUSPENDED') throw new AclError(401, 'stale token: account inactive');
-        if (body.ver && Number(body.ver) > Number(payload.ver)) throw new AclError(401, 'stale token: refresh required');
+        const tokenVer = Number(payload.ver);
+        if (!Number.isFinite(tokenVer)) {
+          throw new AclError(401, 'stale token: invalid token version');
+        }
+        if (body.ver && Number(body.ver) > tokenVer) throw new AclError(401, 'stale token: refresh required');
+      } catch (e: any) {
+        if (e instanceof AclError) throw e;
+        throw new AclError(401, `version check failed: ${e.message}`);
       }
     }
     return payload as AclClaims;

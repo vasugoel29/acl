@@ -15,6 +15,8 @@ interface StoredKey {
 }
 
 let loaded: { stored: StoredKey[]; signing: { kid: string; key: CryptoKey | Uint8Array } } | null = null;
+let loadedAt = 0;
+const KEY_CACHE_TTL_MS = 60_000;
 
 async function createKey(): Promise<StoredKey> {
   const { privateKey, publicKey } = await generateKeyPair(ALG, { extractable: true });
@@ -32,8 +34,9 @@ async function createKey(): Promise<StoredKey> {
  *  2. Local file `KEYS_FILE` (when present)
  *  3. PostgreSQL `signing_keys` table in serverless environments (Vercel + Supabase)
  */
-async function load() {
-  if (loaded) return loaded;
+async function load(force = false) {
+  const now = Date.now();
+  if (!force && loaded && now - loadedAt < KEY_CACHE_TTL_MS) return loaded;
   let stored: StoredKey[] = [];
 
   if (config.signingKeysJson) {
@@ -66,6 +69,7 @@ async function load() {
   }
   const signing = { kid: stored[0].kid, key: await importJWK(stored[0].private, ALG) };
   loaded = { stored, signing };
+  loadedAt = now;
   return loaded;
 }
 
@@ -84,6 +88,7 @@ export async function rotateKeys() {
     fs.writeFileSync(config.keysFile, JSON.stringify(next, null, 2), { mode: 0o600 });
   }
   loaded = null;
+  loadedAt = 0;
 }
 
 export async function jwks() {
@@ -105,10 +110,14 @@ export async function signJwt(claims: Record<string, unknown>, opts: { aud: stri
 }
 
 export async function verifyJwt(token: string, aud?: string) {
-  const { stored } = await load();
+  let { stored } = await load();
   // Verify against any published key (matched by kid).
   const header = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString());
-  const k = stored.find((s) => s.kid === header.kid);
+  let k = stored.find((s) => s.kid === header.kid);
+  if (!k) {
+    stored = (await load(true)).stored;
+    k = stored.find((s) => s.kid === header.kid);
+  }
   if (!k) throw new Error('unknown kid');
   const key = await importJWK(k.public, ALG);
   const { payload } = await jwtVerify(token, key, { issuer: config.issuer, audience: aud, algorithms: [ALG] });

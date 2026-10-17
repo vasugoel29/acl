@@ -30,6 +30,17 @@ services:
       timeout: 5s
       retries: 5
 
+  keys-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: root
+    restart: "no"
+    command: >
+      sh -c "mkdir -p /app/keys && chown -R node:node /app/keys && su -s /bin/sh node -c 'ALLOW_AUTO_KEYGEN=true KEYS_FILE=/app/keys/signing.json node -e \"import(\\\"./dist/src/tokens/jwt.js\\\").then(m => m.jwks())\"'"
+    volumes:
+      - ./keys:/app/keys
+
   api:
     build:
       context: .
@@ -40,6 +51,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      keys-init:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:
@@ -59,11 +72,15 @@ services:
       dockerfile: Dockerfile
     command: ["node", "dist/src/jobs/worker.js"]
     restart: unless-stopped
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      keys-init:
+        condition: service_completed_successfully
     env_file:
       - .env
     environment:

@@ -5,7 +5,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- 1. Core Unified Users Directory (Students, Faculty, Staff, Admins)
 CREATE TABLE IF NOT EXISTS users (
   id                   TEXT PRIMARY KEY,
-  email                CITEXT UNIQUE NOT NULL CONSTRAINT users_email_check CHECK (email LIKE '%@nsut.ac.in' OR email LIKE '%@nsit.ac.in'),
+  email                CITEXT UNIQUE NOT NULL,
   google_sub           TEXT UNIQUE,
   name                 TEXT NOT NULL,
   avatar_url           TEXT,

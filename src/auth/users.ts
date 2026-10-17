@@ -8,7 +8,10 @@ const ROLL_RE = /^(\d{4})[a-z]{3}\d{3,5}$/i;
 /** Find by google_sub, then by email; otherwise auto-provision (spec Flow 2). */
 export async function upsertFromGoogle(g: GoogleIdentity, ip?: string) {
   const existing = (
-    await pool.query(`SELECT * FROM users WHERE google_sub=$1 OR email=$2 ORDER BY (google_sub=$1) DESC LIMIT 1`, [g.sub, g.email])
+    await pool.query(
+      `SELECT * FROM users WHERE google_sub=$1 OR email=$2 ORDER BY (google_sub IS NOT NULL AND google_sub = $1) DESC LIMIT 1`,
+      [g.sub, g.email],
+    )
   ).rows[0];
 
   if (existing) {

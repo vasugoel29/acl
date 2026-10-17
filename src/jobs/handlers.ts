@@ -318,18 +318,44 @@ export interface RolloverResult {
   scopedAssignmentsExpired: number;
 }
 
+import { config } from '../config.js';
+
+const RELEASE_LOCK_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+else
+  return 0
+end
+`;
+
+const RENEW_LOCK_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("expire", KEYS[1], ARGV[2])
+else
+  return 0
+end
+`;
+
 /**
  * Semester rollover: semester += 1; students beyond maxSemester graduate (ARCHIVED) and their
  * sessions are revoked; semester-scoped assignments expire so reps are re-confirmed (spec Flow 5).
  */
 export async function semesterRollover(opts: { maxSemester?: number } = {}, actorId?: string, jobId?: string): Promise<RolloverResult> {
+  const lockToken = crypto.randomUUID();
   const lockKey = keys.rolloverLock();
-  const acquired = await redis.set(lockKey, jobId ?? '1', 'EX', 300, 'NX');
+  const lockTtlSec = 300;
+  const acquired = await redis.set(lockKey, lockToken, 'EX', lockTtlSec, 'NX');
   if (!acquired) {
     const err = new Error('Another semester rollover is currently in progress');
     if (jobId) await failJobRecord(jobId, err.message);
     throw err;
   }
+  const renewTimer = setInterval(async () => {
+    try {
+      await redis.eval(RENEW_LOCK_SCRIPT, 1, lockKey, lockToken, String(lockTtlSec));
+    } catch {}
+  }, Math.max(1000, (lockTtlSec * 1000) / 3));
+
   try {
     if (jobId) await startJobRecord(jobId);
 
@@ -360,15 +386,29 @@ export async function semesterRollover(opts: { maxSemester?: number } = {}, acto
         [[...advancing, ...graduating]],
       );
       const affected = [...new Set([...advancing, ...graduating])];
-      return { affected, graduatedIds: graduating, graduated: graduating.length, advanced: advancing.length, expired: expired.rowCount ?? 0 };
+      let updatedUsers: { id: string; acl_version: number }[] = [];
+      if (affected.length) {
+        const bumpRes = await c.query(
+          `UPDATE users SET acl_version = acl_version + 1 WHERE id = ANY($1) RETURNING id, acl_version`,
+          [affected],
+        );
+        updatedUsers = bumpRes.rows.map((r) => ({ id: r.id as string, acl_version: Number(r.acl_version) }));
+      }
+      return { affected, updatedUsers, graduatedIds: graduating, graduated: graduating.length, advanced: advancing.length, expired: expired.rowCount ?? 0 };
     });
-    for (const id of out.affected) {
-      const v = await bumpAclVersion(id);
-      await publishAclVersion(id, v);
+
+    if (out.updatedUsers.length || out.graduatedIds.length) {
+      const pipeline = redis.pipeline();
+      for (const u of out.updatedUsers) {
+        pipeline.set(keys.aclVersion(u.id), String(u.acl_version), 'EX', config.accessTokenTtlSec * 2);
+      }
+      const revokedAt = String(Math.floor(Date.now() / 1000));
+      for (const id of out.graduatedIds) {
+        pipeline.set(keys.denyUser(id), revokedAt, 'EX', Math.max(config.accessTokenTtlSec, 1));
+      }
+      await pipeline.exec();
     }
-    for (const id of out.graduatedIds) {
-      await denyUserTokens(id);
-    }
+
     await audit({ actorId, action: 'SEMESTER_ROLLOVER', metadata: { advanced: out.advanced, graduated: out.graduated, expired: out.expired } });
 
     if (jobId) {
@@ -388,7 +428,8 @@ export async function semesterRollover(opts: { maxSemester?: number } = {}, acto
     if (jobId) await failJobRecord(jobId, err.message);
     throw err;
   } finally {
-    await redis.del(lockKey).catch(() => {});
+    clearInterval(renewTimer);
+    await redis.eval(RELEASE_LOCK_SCRIPT, 1, lockKey, lockToken).catch(() => {});
   }
 }
 

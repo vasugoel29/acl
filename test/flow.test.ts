@@ -18,6 +18,11 @@ beforeAll(async () => {
   const r = await login(app, { email: 'root@nsut.ac.in', appId: 'ACL' });
   if (r.stage !== 'done') throw new Error('admin login failed');
   adminToken = r.tokens.access_token;
+  await pool.query(
+    `INSERT INTO applications (id, name, redirect_uris) VALUES ('HAJIRI', 'Hajiri Attendance', $1)
+     ON CONFLICT (id) DO UPDATE SET redirect_uris = EXCLUDED.redirect_uris`,
+    [[redirectFor('HAJIRI')]],
+  );
 });
 
 afterAll(async () => {
@@ -96,11 +101,31 @@ describe('login flow', () => {
   });
 
   it('rejects a code redeemed by a different app', async () => {
-    const r = await login(app, { email: 'xapp@nsut.ac.in', appId: 'CRAS' });
-    if (r.stage !== 'done') throw new Error('x');
-    // fresh code would be needed; reusing consumed code must fail anyway for another app
-    const res = await exchange(app, { appId: 'OTHER', code: r.code, verifier: r.verifier, redirectUri: 'http://localhost:3002/callback' });
-    expect([400, 401]).toContain(res.statusCode);
+    const { challenge, verifier } = pkcePair();
+    const a = await app.inject({
+      url:
+        '/authorize?' +
+        new URLSearchParams({
+          response_type: 'code',
+          client_id: 'CRAS',
+          redirect_uri: redirectFor('CRAS'),
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          state: 'binding-code-test',
+        }),
+    });
+    const cbUrl = googleCallbackFromRedirect(a.headers.location as string, 'xapp@nsut.ac.in');
+    const cb = await app.inject({ url: cbUrl });
+    const code = new URL(cb.headers.location as string).searchParams.get('code')!;
+
+    const res = await exchange(app, {
+      appId: 'HAJIRI',
+      code,
+      verifier,
+      redirectUri: redirectFor('HAJIRI'),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('invalid_grant');
   });
 
   it('state callback is single-use (cannot be replayed)', async () => {
@@ -133,8 +158,9 @@ describe('refresh tokens', () => {
   it('refresh tokens are bound to their app', async () => {
     const r = await login(app, { email: 'bound.user@nsut.ac.in', appId: 'CRAS' });
     if (r.stage !== 'done') throw new Error('x');
-    const res = await refresh(app, 'OTHER', r.tokens.refresh_token);
-    expect([400, 401]).toContain(res.statusCode);
+    const res = await refresh(app, 'HAJIRI', r.tokens.refresh_token);
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('invalid_grant');
   });
 });
 

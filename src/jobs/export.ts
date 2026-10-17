@@ -66,7 +66,7 @@ export async function exportUsersCsv(
 
       for (const u of pageRes.rows) {
         const row = [
-          escapeCsvCell(u.batch_year ?? (u.year ? currentYear - (4 - u.year) : '')),
+          escapeCsvCell(u.batch_year ?? (u.year ? currentYear - (u.year - 1) : '')),
           escapeCsvCell(u.degree ?? ''),
           escapeCsvCell(u.dept ?? u.branch ?? ''),
           escapeCsvCell(u.roll_no ?? ''),

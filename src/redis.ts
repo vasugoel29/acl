@@ -1,7 +1,11 @@
 import { Redis } from 'ioredis';
 import { config } from './config.js';
 
-export const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
+export const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 3 });
+
+export function createBullRedisConnection() {
+  return new Redis(config.redisUrl, { maxRetriesPerRequest: null });
+}
 
 export const keys = {
   aclVersion: (userId: string) => `aclver:${userId}`,

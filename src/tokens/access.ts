@@ -122,7 +122,8 @@ export async function denyJti(jti: string, ttlSec: number) {
 }
 
 export async function denyUserTokens(userId: string, ttlSec = config.accessTokenTtlSec) {
-  await redis.set(keys.denyUser(userId), '1', 'EX', Math.max(ttlSec, 1));
+  const revokedAt = Math.floor(Date.now() / 1000);
+  await redis.set(keys.denyUser(userId), String(revokedAt), 'EX', Math.max(ttlSec, 1));
 }
 
 export async function clearUserDeny(userId: string) {

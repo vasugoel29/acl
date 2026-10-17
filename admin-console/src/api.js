@@ -97,11 +97,24 @@ export async function fetchCurrentSession() {
 }
 
 export async function logout() {
-  await fetch(`${API}/api/admin/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'x-requested-with': 'XMLHttpRequest' },
-  }).catch(() => {});
+  const doReq = () =>
+    fetch(`${API}/api/admin/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'x-requested-with': 'XMLHttpRequest' },
+    });
+  let r = await doReq().catch(() => null);
+  if (r && r.status === 401 && (await tryRefreshSession())) {
+    r = await doReq().catch(() => null);
+  }
+  if (!r || !r.ok) {
+    let msg = r ? `HTTP ${r.status}` : 'Network error';
+    try {
+      const err = await r?.json();
+      msg = err?.error || msg;
+    } catch {}
+    throw new Error(`Logout failed: ${msg}`);
+  }
   location.reload();
 }
 
@@ -132,13 +145,20 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
 
   if (r.status === 204) return null;
 
-  const data = await r.json().catch(() => ({}));
   if (!r.ok) {
+    let data;
+    try {
+      data = await r.json();
+    } catch {
+      const text = await r.text().catch(() => '');
+      throw new Error(text || `HTTP ${r.status}`);
+    }
     throw new Error(
       data.error
         ? `${data.error}${data.detail ? `: ${data.detail}` : ''}${data.issues ? ': ' + data.issues.map((i) => i.message).join(', ') : ''}`
         : `HTTP ${r.status}`,
     );
   }
-  return data;
+
+  return await r.json();
 }

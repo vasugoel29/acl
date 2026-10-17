@@ -44,11 +44,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
     global: true,
     max: 300,
     timeWindow: '1 minute',
-    keyGenerator: (req) => {
-      const tok = req.cookies?.acl_admin_session ?? req.headers.authorization;
-      if (tok) return `${req.ip}:${tok.slice(-16)}`;
-      return req.ip;
-    },
+    keyGenerator: (req) => req.ip,
   });
 
   // Allow credentials (cookies) and CSRF custom header from Admin Console
@@ -69,12 +65,6 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
   app.get('/healthz', readinessHandler);
   app.get('/readyz', readinessHandler);
 
-  // Stricter limit on login initiation (brute-force / abuse protection).
-  app.addHook('onRoute', (route) => {
-    if (route.url === '/authorize') {
-      route.config = { ...(route.config as object), rateLimit: { max: 120, timeWindow: '1 minute' } };
-    }
-  });
 
   await app.register(oidcRoutes);
   await app.register(adminRoutes);

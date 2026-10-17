@@ -110,8 +110,11 @@ export function checkPermission(
   permission: string,
   resource: Record<string, string | number> = {},
 ): boolean {
+  if (!access?.scopes_by_permission || !Object.prototype.hasOwnProperty.call(access.scopes_by_permission, permission)) {
+    return false;
+  }
   const alternatives = access.scopes_by_permission[permission];
-  if (!alternatives) return false;
+  if (!Array.isArray(alternatives)) return false;
   return alternatives.some((s) => scopeAllows(s, resource));
 }
 

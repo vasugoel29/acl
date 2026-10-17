@@ -8,9 +8,19 @@ const needsSsl =
   config.databaseUrl.includes('neon.tech') ||
   config.databaseUrl.includes('sslmode=require');
 
+const sslConfig = needsSsl
+  ? {
+      rejectUnauthorized:
+        process.env.DB_SSL_REJECT_UNAUTHORIZED === 'false' || process.env.DB_SSL_INSECURE === 'true'
+          ? false
+          : true,
+      ...(process.env.DB_CA ? { ca: process.env.DB_CA } : {}),
+    }
+  : undefined;
+
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
-  ...(needsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+  ...(sslConfig ? { ssl: sslConfig } : {}),
   ...(isServerless ? { max: 5, idleTimeoutMillis: 10000 } : {}),
 });
 

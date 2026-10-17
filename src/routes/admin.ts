@@ -23,6 +23,7 @@ import {
   denyJti,
   denyUserTokens,
   clearUserDeny,
+  type UserRow,
 } from '../tokens/access.js';
 import { revokeAllForUser, revokeRefresh, rotateRefresh } from '../tokens/refresh.js';
 import { getQueue } from '../jobs/queue.js';
@@ -189,6 +190,86 @@ export async function adminRoutes(app: FastifyInstance) {
     if (!user || user.status !== 'ACTIVE') return { allowed: false, reason: 'inactive_user' };
     const access = await resolveForApp(user.id, b.app);
     return { allowed: checkPermission(access, b.permission, b.scope) };
+  });
+
+  // Client-authenticated (apps) direct user access endpoint (Server-to-Server)
+  app.post('/v1/user-access', async (req, reply) => {
+    let clientId: string | undefined;
+    let clientSecret: string | undefined;
+
+    const basic = req.headers.authorization?.startsWith('Basic ') ? req.headers.authorization.slice(6) : null;
+    if (basic) {
+      const [bid, bsec] = Buffer.from(basic, 'base64').toString().split(':');
+      clientId = bid;
+      clientSecret = bsec;
+    }
+
+    const b = z.object({
+      client_id: z.string().optional(),
+      client_secret: z.string().optional(),
+      email: z.string().email().optional(),
+      user_id: z.string().optional(),
+      app: z.string().optional(),
+    }).parse(req.body ?? {});
+
+    clientId = clientId ?? b.client_id;
+    clientSecret = clientSecret ?? b.client_secret;
+
+    if (!clientId || !clientSecret) {
+      return reply.code(401).send({ error: 'invalid_client', error_description: 'client_id and client_secret required' });
+    }
+
+    const targetApp = b.app ?? clientId;
+    if (targetApp !== clientId) {
+      return reply.code(403).send({ error: 'forbidden', error_description: 'apps may only query their own user access' });
+    }
+
+    const client = (await pool.query(`SELECT * FROM applications WHERE id=$1 AND status='ACTIVE'`, [clientId])).rows[0];
+    if (!client?.client_secret_hash || !safeCompareHex(sha256(clientSecret), client.client_secret_hash)) {
+      return reply.code(401).send({ error: 'invalid_client', error_description: 'invalid client credentials' });
+    }
+
+    if (!b.email && !b.user_id) {
+      return reply.code(400).send({ error: 'invalid_request', error_description: 'either email or user_id is required' });
+    }
+
+    let user: UserRow | null = null;
+    if (b.user_id) {
+      user = await getUser(b.user_id);
+    } else if (b.email) {
+      const r = await pool.query(`SELECT * FROM users WHERE email=$1`, [b.email.trim().toLowerCase()]);
+      user = r.rows[0] ?? null;
+    }
+
+    if (!user) {
+      return reply.code(404).send({ error: 'user_not_found', error_description: 'user not found in directory' });
+    }
+
+    if (user.status !== 'ACTIVE') {
+      return reply.code(403).send({ error: 'user_inactive', error_description: `user status is ${user.status}` });
+    }
+
+    const [access, academic] = await Promise.all([
+      resolveForApp(user.id, targetApp),
+      academicOf(user.id),
+    ]);
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        type: (user as any).type ?? (user.employee_id ? 'FACULTY' : 'STUDENT'),
+        status: user.status,
+        ...(academic ? { academic } : {}),
+      },
+      app: targetApp,
+      role: access.role,
+      roles: access.roles,
+      permissions: access.permissions,
+      allowed_scope: access.scope,
+      scopes_by_permission: access.scopes_by_permission,
+    };
   });
 
   // BFF silent session refresh using httpOnly refresh cookie

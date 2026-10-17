@@ -1524,3 +1524,37 @@ tr.interactive-row:hover {
   font-size: 12.5px;
   color: #94a3b8;
 }
+
+/* ================= Skeleton Shimmer Loading ================= */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite ease-in-out;
+  border-radius: 6px;
+  display: inline-block;
+  line-height: 1;
+}
+
+.skeleton-circle {
+  border-radius: 50% !important;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tab-panel-container {
+  width: 100%;
+}
+

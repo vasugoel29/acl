@@ -223,6 +223,71 @@ function SearchableSelect({
   );
 }
 
+/* ================= Shimmer Skeleton Components ================= */
+function Skeleton({ width = '100%', height = '16px', borderRadius = '6px', style = {}, className = '' }) {
+  return (
+    <span
+      className={`skeleton ${className}`}
+      style={{
+        width,
+        height,
+        borderRadius,
+        ...style,
+      }}
+    />
+  );
+}
+
+function TableSkeleton({ rows = 6, cols = 5, widths = [] }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, rIdx) => (
+        <tr key={rIdx} className="skeleton-table-row">
+          {Array.from({ length: cols }).map((_, cIdx) => (
+            <td key={cIdx} style={{ padding: '16px 20px', verticalAlign: 'middle' }}>
+              <Skeleton
+                width={widths[cIdx] || (cIdx === 0 ? '70%' : cIdx === cols - 1 ? '40%' : '85%')}
+                height="16px"
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+function MetricCardSkeleton() {
+  return (
+    <div className="metric-card" style={{ pointerEvents: 'none' }}>
+      <Skeleton width="55%" height="13px" style={{ marginBottom: '10px' }} />
+      <Skeleton width="40%" height="28px" style={{ marginBottom: '8px' }} />
+      <Skeleton width="75%" height="12px" />
+    </div>
+  );
+}
+
+function AppCardSkeleton() {
+  return (
+    <div className="table-card" style={{ padding: '24px', pointerEvents: 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '16px' }}>
+        <Skeleton width="44px" height="44px" borderRadius="10px" />
+        <div style={{ flex: 1 }}>
+          <Skeleton width="45%" height="18px" style={{ marginBottom: '6px' }} />
+          <Skeleton width="25%" height="12px" />
+        </div>
+      </div>
+      <Skeleton width="90%" height="14px" style={{ marginBottom: '8px' }} />
+      <Skeleton width="70%" height="14px" style={{ marginBottom: '16px' }} />
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <Skeleton width="60px" height="24px" borderRadius="12px" />
+        <Skeleton width="75px" height="24px" borderRadius="12px" />
+        <Skeleton width="50px" height="24px" borderRadius="12px" />
+      </div>
+    </div>
+  );
+}
+
 function getInitials(name, email) {
   const raw = (name || email || 'Admin').trim();
   const parts = raw.split(/\s+/).filter(Boolean);
@@ -236,7 +301,17 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set(['overview']));
   const [errorBanner, setErrorBanner] = useState('');
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
 
   useEffect(() => {
     (async () => {
@@ -321,33 +396,75 @@ export default function App() {
         </div>
 
         <div className="nav-group-title">Navigation</div>
-        <nav className="nav-menu">
-          <button className={`nav-button ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
+        <nav className="nav-menu" role="tablist" aria-label="Identity Administration Tabs">
+          <button
+            id="tab-overview"
+            role="tab"
+            aria-selected={activeTab === 'overview'}
+            aria-controls="tabpanel-overview"
+            className={`nav-button ${activeTab === 'overview' ? 'active' : ''}`}
+            onClick={() => setActiveTab('overview')}
+          >
             <span className="nav-icon"><IconDashboard size={18} /></span>
             <span className="nav-label-full">Overview</span>
             <span className="nav-label-short">Overview</span>
           </button>
-          <button className={`nav-button ${activeTab === 'directory' ? 'active' : ''}`} onClick={() => setActiveTab('directory')}>
+          <button
+            id="tab-directory"
+            role="tab"
+            aria-selected={activeTab === 'directory'}
+            aria-controls="tabpanel-directory"
+            className={`nav-button ${activeTab === 'directory' ? 'active' : ''}`}
+            onClick={() => setActiveTab('directory')}
+          >
             <span className="nav-icon"><IconUsers size={18} /></span>
             <span className="nav-label-full">Campus Directory</span>
             <span className="nav-label-short">Directory</span>
           </button>
-          <button className={`nav-button ${activeTab === 'apps' ? 'active' : ''}`} onClick={() => setActiveTab('apps')}>
+          <button
+            id="tab-apps"
+            role="tab"
+            aria-selected={activeTab === 'apps'}
+            aria-controls="tabpanel-apps"
+            className={`nav-button ${activeTab === 'apps' ? 'active' : ''}`}
+            onClick={() => setActiveTab('apps')}
+          >
             <span className="nav-icon"><IconApps size={18} /></span>
             <span className="nav-label-full">Applications</span>
             <span className="nav-label-short">Apps</span>
           </button>
-          <button className={`nav-button ${activeTab === 'resources' ? 'active' : ''}`} onClick={() => setActiveTab('resources')}>
+          <button
+            id="tab-resources"
+            role="tab"
+            aria-selected={activeTab === 'resources'}
+            aria-controls="tabpanel-resources"
+            className={`nav-button ${activeTab === 'resources' ? 'active' : ''}`}
+            onClick={() => setActiveTab('resources')}
+          >
             <span className="nav-icon"><IconResource size={18} /></span>
             <span className="nav-label-full">Resources</span>
             <span className="nav-label-short">Resources</span>
           </button>
-          <button className={`nav-button ${activeTab === 'ingest' ? 'active' : ''}`} onClick={() => setActiveTab('ingest')}>
+          <button
+            id="tab-ingest"
+            role="tab"
+            aria-selected={activeTab === 'ingest'}
+            aria-controls="tabpanel-ingest"
+            className={`nav-button ${activeTab === 'ingest' ? 'active' : ''}`}
+            onClick={() => setActiveTab('ingest')}
+          >
             <span className="nav-icon"><IconIngest size={18} /></span>
             <span className="nav-label-full">Data Management</span>
             <span className="nav-label-short">Data Sync</span>
           </button>
-          <button className={`nav-button ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')}>
+          <button
+            id="tab-audit"
+            role="tab"
+            aria-selected={activeTab === 'audit'}
+            aria-controls="tabpanel-audit"
+            className={`nav-button ${activeTab === 'audit' ? 'active' : ''}`}
+            onClick={() => setActiveTab('audit')}
+          >
             <span className="nav-icon"><IconAudit size={18} /></span>
             <span className="nav-label-full">Audit Log</span>
             <span className="nav-label-short">Audit Log</span>
@@ -391,12 +508,71 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'overview' && <Overview onViewTab={setActiveTab} />}
-          {activeTab === 'directory' && <Directory />}
-          {activeTab === 'apps' && <Applications />}
-          {activeTab === 'resources' && <ResourcesCatalog />}
-          {activeTab === 'ingest' && <IngestionCenter />}
-          {activeTab === 'audit' && <AuditStream />}
+          <div
+            id="tabpanel-overview"
+            role="tabpanel"
+            aria-labelledby="tab-overview"
+            hidden={activeTab !== 'overview'}
+            className="tab-panel-container"
+            style={{ display: activeTab === 'overview' ? 'block' : 'none' }}
+          >
+            {visitedTabs.has('overview') && <Overview onViewTab={setActiveTab} />}
+          </div>
+
+          <div
+            id="tabpanel-directory"
+            role="tabpanel"
+            aria-labelledby="tab-directory"
+            hidden={activeTab !== 'directory'}
+            className="tab-panel-container"
+            style={{ display: activeTab === 'directory' ? 'block' : 'none' }}
+          >
+            {visitedTabs.has('directory') && <Directory />}
+          </div>
+
+          <div
+            id="tabpanel-apps"
+            role="tabpanel"
+            aria-labelledby="tab-apps"
+            hidden={activeTab !== 'apps'}
+            className="tab-panel-container"
+            style={{ display: activeTab === 'apps' ? 'block' : 'none' }}
+          >
+            {visitedTabs.has('apps') && <Applications />}
+          </div>
+
+          <div
+            id="tabpanel-resources"
+            role="tabpanel"
+            aria-labelledby="tab-resources"
+            hidden={activeTab !== 'resources'}
+            className="tab-panel-container"
+            style={{ display: activeTab === 'resources' ? 'block' : 'none' }}
+          >
+            {visitedTabs.has('resources') && <ResourcesCatalog />}
+          </div>
+
+          <div
+            id="tabpanel-ingest"
+            role="tabpanel"
+            aria-labelledby="tab-ingest"
+            hidden={activeTab !== 'ingest'}
+            className="tab-panel-container"
+            style={{ display: activeTab === 'ingest' ? 'block' : 'none' }}
+          >
+            {visitedTabs.has('ingest') && <IngestionCenter />}
+          </div>
+
+          <div
+            id="tabpanel-audit"
+            role="tabpanel"
+            aria-labelledby="tab-audit"
+            hidden={activeTab !== 'audit'}
+            className="tab-panel-container"
+            style={{ display: activeTab === 'audit' ? 'block' : 'none' }}
+          >
+            {visitedTabs.has('audit') && <AuditStream />}
+          </div>
         </main>
       </div>
     </div>
@@ -492,26 +668,37 @@ function Overview({ onViewTab }) {
 
       {/* Balanced 4-Column KPI Grid */}
       <div className="metrics-row">
-        <div className="metric-card">
-          <div className="metric-title">Total Campus Users</div>
-          <div className="metric-value">{loading ? '—' : (metrics?.totalUsers ?? 0).toLocaleString()}</div>
-          <div className="metric-meta">Accounts active in NSUT IAM</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-title">Academic Departments</div>
-          <div className="metric-value">{loading ? '—' : (metrics?.totalDepartments ?? 20).toLocaleString()}</div>
-          <div className="metric-meta">Teaching &amp; research divisions</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-title">Connected Applications</div>
-          <div className="metric-value">{loading ? '—' : (metrics?.activeApps ?? 1)}</div>
-          <div className="metric-meta">Active campus client services</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-title">Active Role Grants</div>
-          <div className="metric-value">{loading ? '—' : (metrics?.activeAssignments ?? 0).toLocaleString()}</div>
-          <div className="metric-meta">Scoped application assignments</div>
-        </div>
+        {loading ? (
+          <>
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+            <MetricCardSkeleton />
+          </>
+        ) : (
+          <>
+            <div className="metric-card">
+              <div className="metric-title">Total Campus Users</div>
+              <div className="metric-value">{(metrics?.totalUsers ?? 0).toLocaleString()}</div>
+              <div className="metric-meta">Accounts active in NSUT IAM</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-title">Academic Departments</div>
+              <div className="metric-value">{(metrics?.totalDepartments ?? 20).toLocaleString()}</div>
+              <div className="metric-meta">Teaching &amp; research divisions</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-title">Connected Applications</div>
+              <div className="metric-value">{metrics?.activeApps ?? 1}</div>
+              <div className="metric-meta">Active campus client services</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-title">Active Role Grants</div>
+              <div className="metric-value">{(metrics?.activeAssignments ?? 0).toLocaleString()}</div>
+              <div className="metric-meta">Scoped application assignments</div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* 2-Column Main Section */}
@@ -531,29 +718,40 @@ function Overview({ onViewTab }) {
           </div>
 
           <div className="activity-stream">
-            {recentLogs.length === 0 && (
+            {loading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="activity-item" style={{ pointerEvents: 'none' }}>
+                  <div style={{ flex: 1 }}>
+                    <Skeleton width="45%" height="15px" style={{ marginBottom: '6px' }} />
+                    <Skeleton width="65%" height="12px" />
+                  </div>
+                  <Skeleton width="50px" height="12px" />
+                </div>
+              ))
+            ) : recentLogs.length === 0 ? (
               <div style={{ padding: '28px 0', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
                 No recent activity logged.
               </div>
-            )}
-            {recentLogs.map((log) => (
-              <div key={log.id} className="activity-item">
-                <div style={{ minWidth: 0 }}>
-                  <div className="activity-action">{formatAction(log.action)}</div>
-                  <div className="activity-meta">
-                    <span style={{ color: '#0f172a', fontWeight: 500 }}>
-                      {log.actor_name || (log.actor_email ? log.actor_email.split('@')[0] : (log.actor_id ? (log.actor_id.includes('@') ? log.actor_id.split('@')[0] : log.actor_id) : 'System'))}
-                    </span>
-                    {log.app_id && (
-                      <span> · <span className="mono" style={{ color: '#1d4ed8' }}>{log.app_id}</span></span>
-                    )}
+            ) : (
+              recentLogs.map((log) => (
+                <div key={log.id} className="activity-item">
+                  <div style={{ minWidth: 0 }}>
+                    <div className="activity-action">{formatAction(log.action)}</div>
+                    <div className="activity-meta">
+                      <span style={{ color: '#0f172a', fontWeight: 500 }}>
+                        {log.actor_name || (log.actor_email ? log.actor_email.split('@')[0] : (log.actor_id ? (log.actor_id.includes('@') ? log.actor_id.split('@')[0] : log.actor_id) : 'System'))}
+                      </span>
+                      {log.app_id && (
+                        <span> · <span className="mono" style={{ color: '#1d4ed8' }}>{log.app_id}</span></span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="activity-time">
+                    {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
-                <div className="activity-time">
-                  {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -731,11 +929,7 @@ function Directory() {
             </thead>
             <tbody>
               {loading && (
-                <tr>
-                  <td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
-                    Loading directory records…
-                  </td>
-                </tr>
+                <TableSkeleton rows={8} cols={4} widths={['55%', '70%', '40%', '60%']} />
               )}
               {!loading && users.length === 0 && (
                 <tr>
@@ -1381,7 +1575,12 @@ function Applications() {
       )}
 
       <div className="apps-grid">
-        {loading && <div style={{ color: '#64748b' }}>Loading applications…</div>}
+        {loading && (
+          <>
+            <AppCardSkeleton />
+            <AppCardSkeleton />
+          </>
+        )}
         {apps.map((a) => (
           <div key={a.id} className="table-card" style={{ padding: '22px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '8px' }}>
@@ -1972,7 +2171,7 @@ function ResourcesCatalog() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>Loading campus resources…</td></tr>
+                <TableSkeleton rows={6} cols={4} widths={['40%', '45%', '70%', '25%']} />
               )}
               {!loading && filtered.length === 0 && (
                 <tr><td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>No resources match the current filter.</td></tr>
@@ -2392,11 +2591,7 @@ function IngestionCenter() {
               </thead>
               <tbody>
                 {loadingJobs && (
-                  <tr>
-                    <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
-                      Loading job history…
-                    </td>
-                  </tr>
+                  <TableSkeleton rows={4} cols={5} widths={['45%', '35%', '25%', '40%', '20%']} />
                 )}
                 {!loadingJobs && jobs.length === 0 && (
                   <tr>
@@ -2669,7 +2864,7 @@ function AuditStream() {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>Loading audit records…</td></tr>
+                <TableSkeleton rows={8} cols={6} widths={['30%', '40%', '35%', '45%', '35%', '60%']} />
               )}
               {!loading && logs.length === 0 && (
                 <tr><td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>No audit records found matching the filter criteria.</td></tr>

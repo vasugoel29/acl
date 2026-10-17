@@ -326,9 +326,16 @@ export async function adminRoutes(app: FastifyInstance) {
     admin.addHook('preHandler', adminAuth);
 
     // ---------------- BFF Admin Session ----------------
-    admin.get('/api/admin/auth/me', async (req) => {
+    admin.get('/api/admin/auth/me', async (req, reply) => {
       if (!req.admin?.access.permissions.length) {
-        throw new HttpError(403, 'Access denied: account holds no administrative permissions on this console');
+        const refreshCookie = req.cookies.acl_admin_refresh;
+        if (refreshCookie) await revokeRefresh(refreshCookie);
+        reply.clearCookie('acl_admin_session', { path: '/' });
+        reply.clearCookie('acl_admin_refresh', { path: '/' });
+        throw new HttpError(
+          403,
+          'Access denied. Your account does not have administrative permissions to access the NSUT Identity Console.',
+        );
       }
       const u = await getUser(req.admin.userId);
       const academic = await academicOf(req.admin.userId);

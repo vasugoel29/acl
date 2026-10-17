@@ -6,11 +6,102 @@ const REDIRECT = `${location.origin}/callback`;
 const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const rand = (n = 32) => b64url(crypto.getRandomValues(new Uint8Array(n)));
 
+const PKCE_TTL_MS = 10 * 60 * 1000;
+
+function savePkce(state, verifier) {
+  const payload = JSON.stringify({ verifier, state, createdAt: Date.now() });
+  try {
+    sessionStorage.setItem('pkce', payload);
+    sessionStorage.setItem(`pkce:${state}`, payload);
+  } catch {
+    /* ignore storage quota/privacy errors */
+  }
+  try {
+    const now = Date.now();
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('pkce:')) {
+        try {
+          const item = JSON.parse(localStorage.getItem(k) || 'null');
+          if (!item?.createdAt || now - item.createdAt > PKCE_TTL_MS) {
+            localStorage.removeItem(k);
+          }
+        } catch {
+          localStorage.removeItem(k);
+        }
+      }
+    }
+    localStorage.setItem(`pkce:${state}`, payload);
+    localStorage.setItem('pkce_latest', payload);
+  } catch {
+    /* ignore storage quota/privacy errors */
+  }
+  try {
+    const secureFlag = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `acl_pkce=${encodeURIComponent(payload)}; path=/; max-age=600; SameSite=Lax${secureFlag}`;
+  } catch {
+    /* ignore cookie errors */
+  }
+}
+
+function clearPkce(state) {
+  try {
+    sessionStorage.removeItem('pkce');
+    if (state) sessionStorage.removeItem(`pkce:${state}`);
+  } catch {}
+  try {
+    if (state) localStorage.removeItem(`pkce:${state}`);
+    localStorage.removeItem('pkce_latest');
+  } catch {}
+  try {
+    document.cookie = 'acl_pkce=; path=/; max-age=0; SameSite=Lax';
+  } catch {}
+}
+
+function loadAndClearPkce(expectedState) {
+  const candidates = [];
+  const tryParse = (raw) => {
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  try {
+    if (expectedState) candidates.push(tryParse(sessionStorage.getItem(`pkce:${expectedState}`)));
+    candidates.push(tryParse(sessionStorage.getItem('pkce')));
+  } catch {}
+
+  try {
+    if (expectedState) candidates.push(tryParse(localStorage.getItem(`pkce:${expectedState}`)));
+    candidates.push(tryParse(localStorage.getItem('pkce_latest')));
+  } catch {}
+
+  try {
+    const match = document.cookie
+      .split('; ')
+      .find((row) => row.startsWith('acl_pkce='));
+    if (match) {
+      candidates.push(tryParse(decodeURIComponent(match.slice('acl_pkce='.length))));
+    }
+  } catch {}
+
+  clearPkce(expectedState);
+
+  if (expectedState) {
+    const exact = candidates.find((c) => c && c.state === expectedState && c.verifier);
+    if (exact) return exact;
+  }
+  return candidates.find((c) => c && c.verifier && c.state) || null;
+}
+
 export async function startLogin() {
   const verifier = rand(48);
   const state = rand(16);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  sessionStorage.setItem('pkce', JSON.stringify({ verifier, state }));
+  savePkce(state, verifier);
   location.href = `${API}/authorize?` + new URLSearchParams({
     response_type: 'code',
     client_id: CLIENT_ID,
@@ -25,15 +116,31 @@ export async function startLogin() {
 export async function handleCallback() {
   if (location.pathname !== '/callback') return false;
   const q = new URLSearchParams(location.search);
-  const saved = JSON.parse(sessionStorage.getItem('pkce') ?? 'null');
+  const returnedState = q.get('state');
+  const saved = loadAndClearPkce(returnedState);
   history.replaceState({}, '', '/');
-  sessionStorage.removeItem('pkce');
 
   if (q.get('error')) {
-    throw new Error(q.get('error') === 'access_denied' ? 'Access denied. Please authenticate with an @nsut.ac.in or @nsit.ac.in account.' : q.get('error'));
+    const errCode = q.get('error');
+    const errDesc = q.get('error_description');
+    if (errDesc) throw new Error(errDesc);
+    if (errCode === 'access_denied') {
+      throw new Error('Access denied. Please sign in with an authorized @nsut.ac.in or @nsit.ac.in Google Workspace account.');
+    }
+    if (errCode === 'session_expired') {
+      throw new Error('Your sign-in session expired. Please try signing in again.');
+    }
+    throw new Error(errCode);
   }
-  if (!saved || saved.state !== q.get('state')) {
-    throw new Error('Authentication state validation failed. Please try again.');
+
+  if (!q.get('code')) {
+    return false;
+  }
+
+  if (!saved || saved.state !== returnedState) {
+    const existing = await fetchCurrentSession().catch(() => null);
+    if (existing) return true;
+    throw new Error('Your sign-in session expired or was opened in a different browser window. Please tap "Sign In with Google Workspace" to continue.');
   }
 
   // Token exchange: sets httpOnly SameSite session cookies in the browser
@@ -76,8 +183,9 @@ async function tryRefreshSession() {
 }
 
 export async function fetchCurrentSession() {
+  let r;
   try {
-    let r = await fetch(`${API}/api/admin/auth/me`, {
+    r = await fetch(`${API}/api/admin/auth/me`, {
       method: 'GET',
       credentials: 'include',
       headers: { 'x-requested-with': 'XMLHttpRequest' },
@@ -89,11 +197,18 @@ export async function fetchCurrentSession() {
         headers: { 'x-requested-with': 'XMLHttpRequest' },
       });
     }
-    if (!r.ok) return null;
-    return await r.json();
   } catch {
     return null;
   }
+  if (r.status === 403) {
+    const errData = await r.json().catch(() => ({}));
+    throw new Error(
+      errData.error ||
+        'Access denied. Your account does not have administrative permissions to access the NSUT Identity Console.',
+    );
+  }
+  if (!r.ok) return null;
+  return await r.json().catch(() => null);
 }
 
 export async function logout() {

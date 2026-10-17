@@ -223,6 +223,15 @@ function SearchableSelect({
   );
 }
 
+function getInitials(name, email) {
+  const raw = (name || email || 'Admin').trim();
+  const parts = raw.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return raw.slice(0, 2).toUpperCase();
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -232,12 +241,15 @@ export default function App() {
   useEffect(() => {
     (async () => {
       const q = new URLSearchParams(location.search);
-      if (q.get('error')) {
+      if (q.get('error') && location.pathname !== '/callback') {
         const errType = q.get('error');
-        if (errType === 'session_expired') {
+        const errDesc = q.get('error_description');
+        if (errDesc) {
+          setErrorBanner(errDesc);
+        } else if (errType === 'session_expired') {
           setErrorBanner('Your authentication session expired. Please sign in again.');
         } else if (errType === 'access_denied') {
-          setErrorBanner('Access denied. Your account does not have administrative permissions on this service.');
+          setErrorBanner('Access denied. Your account does not have administrative permissions to access the NSUT Identity Console.');
         } else {
           setErrorBanner(errType);
         }
@@ -249,15 +261,21 @@ export default function App() {
           setErrorBanner(err.message);
         }
       }
-      const s = await fetchCurrentSession();
-      setSession(s);
-      setLoading(false);
+      try {
+        const s = await fetchCurrentSession();
+        setSession(s);
+      } catch (err) {
+        setSession(null);
+        setErrorBanner(err.message);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
   if (loading) {
     return (
-      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', background: 'radial-gradient(circle at 0 0, #ffffff 0%, #f8fafc 50%, #eef2f7 100%)', color: '#0f172a' }}>
+      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100dvh', background: 'radial-gradient(circle at 0 0, #ffffff 0%, #f8fafc 50%, #eef2f7 100%)', color: '#0f172a', padding: '20px' }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ width: '68px', height: '68px', margin: '0 auto 16px', background: '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', border: '1px solid #e2e8f0', boxShadow: '0 6px 20px rgba(15, 23, 42, 0.08)' }}>
             <img src="/nsut-logo.png" alt="NSUT Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -275,46 +293,72 @@ export default function App() {
     return <EnterpriseLoginGateway error={errorBanner} />;
   }
 
+  const userInitials = getInitials(session.user.name, session.user.email);
+
   return (
     <div className="app-shell">
       {/* Enterprise Sidebar */}
       <aside className="sidebar">
-        <div className="brand-section">
-          <div className="brand-crest">
-            <img src="/nsut-logo.png" alt="NSUT Logo" />
+        <div className="sidebar-top-row">
+          <div className="brand-section">
+            <div className="brand-crest">
+              <img src="/nsut-logo.png" alt="NSUT Logo" />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div className="brand-text-title">NSUT Identity</div>
+              <div className="brand-text-sub">Campus Access Management</div>
+            </div>
           </div>
-          <div>
-            <div className="brand-text-title">NSUT Identity</div>
-            <div className="brand-text-sub">Campus Access Management</div>
+
+          <div className="mobile-header-actions">
+            <span className="environment-pill">Active</span>
+            <div className="user-avatar-circle" title={`${session.user.name} (${session.user.email})`}>
+              {userInitials}
+            </div>
+            <button className="btn-signout" title="Sign Out" onClick={logout} style={{ border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+              <IconLogout size={16} />
+            </button>
           </div>
         </div>
 
         <div className="nav-group-title">Navigation</div>
         <nav className="nav-menu">
           <button className={`nav-button ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-            <span className="nav-icon"><IconDashboard size={18} /></span> Overview
+            <span className="nav-icon"><IconDashboard size={18} /></span>
+            <span className="nav-label-full">Overview</span>
+            <span className="nav-label-short">Overview</span>
           </button>
           <button className={`nav-button ${activeTab === 'directory' ? 'active' : ''}`} onClick={() => setActiveTab('directory')}>
-            <span className="nav-icon"><IconUsers size={18} /></span> Campus Directory
+            <span className="nav-icon"><IconUsers size={18} /></span>
+            <span className="nav-label-full">Campus Directory</span>
+            <span className="nav-label-short">Directory</span>
           </button>
           <button className={`nav-button ${activeTab === 'apps' ? 'active' : ''}`} onClick={() => setActiveTab('apps')}>
-            <span className="nav-icon"><IconApps size={18} /></span> Applications
+            <span className="nav-icon"><IconApps size={18} /></span>
+            <span className="nav-label-full">Applications</span>
+            <span className="nav-label-short">Apps</span>
           </button>
           <button className={`nav-button ${activeTab === 'resources' ? 'active' : ''}`} onClick={() => setActiveTab('resources')}>
-            <span className="nav-icon"><IconResource size={18} /></span> Resources
+            <span className="nav-icon"><IconResource size={18} /></span>
+            <span className="nav-label-full">Resources</span>
+            <span className="nav-label-short">Resources</span>
           </button>
           <button className={`nav-button ${activeTab === 'ingest' ? 'active' : ''}`} onClick={() => setActiveTab('ingest')}>
-            <span className="nav-icon"><IconIngest size={18} /></span> Data Management
+            <span className="nav-icon"><IconIngest size={18} /></span>
+            <span className="nav-label-full">Data Management</span>
+            <span className="nav-label-short">Data Sync</span>
           </button>
           <button className={`nav-button ${activeTab === 'audit' ? 'active' : ''}`} onClick={() => setActiveTab('audit')}>
-            <span className="nav-icon"><IconAudit size={18} /></span> Audit Log
+            <span className="nav-icon"><IconAudit size={18} /></span>
+            <span className="nav-label-full">Audit Log</span>
+            <span className="nav-label-short">Audit Log</span>
           </button>
         </nav>
 
         <div className="sidebar-footer">
           <div className="user-profile-badge">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
-              <div className="user-avatar-circle">{session.user.name.slice(0, 2).toUpperCase()}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden', minWidth: 0 }}>
+              <div className="user-avatar-circle">{userInitials}</div>
               <div className="user-profile-details">
                 <div className="user-profile-name">{session.user.name}</div>
                 <div className="user-profile-role">{session.access.roles.map((r) => r.replace(/_/g, ' ')).join(', ') || 'ADMIN'}</div>
@@ -331,20 +375,20 @@ export default function App() {
       <div className="main-view">
         <header className="top-bar">
           <div className="top-bar-left">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-              <img src="/nsut-logo.png" alt="NSUT Seal" style={{ width: '22px', height: '22px', objectFit: 'contain' }} />
+            <div className="top-bar-brand">
+              <img src="/nsut-logo.png" alt="NSUT Seal" style={{ width: '22px', height: '22px', objectFit: 'contain', flexShrink: 0 }} />
               <span className="tenant-title">Netaji Subhas University of Technology</span>
             </div>
             <span className="environment-pill">Active</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <span className="mono" style={{ fontSize: '12px', color: '#475569' }}>{session.user.email}</span>
+          <div className="top-bar-right">
+            <span className="mono top-bar-email">{session.user.email}</span>
           </div>
         </header>
 
         <main className="content-container">
           {errorBanner && (
-            <div style={{ padding: '12px 16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', color: '#fca5a5', marginBottom: '20px', fontSize: '13px' }}>
+            <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', marginBottom: '20px', fontSize: '13px' }}>
               {errorBanner}
             </div>
           )}
@@ -364,29 +408,29 @@ export default function App() {
 /* ================= 1. Enterprise Login Gateway ================= */
 function EnterpriseLoginGateway({ error }) {
   return (
-    <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', background: 'radial-gradient(circle at 0 0, #ffffff 0%, #f8fafc 50%, #eef2f7 100%)', padding: '24px' }}>
-      <div style={{ width: '100%', maxWidth: '460px', background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '24px', padding: '48px 40px', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.06)', textAlign: 'center' }}>
+    <div className="login-gateway-shell">
+      <div className="login-gateway-card">
         <div style={{ width: '84px', height: '84px', margin: '0 auto 20px', background: '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', border: '1px solid #e2e8f0', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' }}>
           <img src="/nsut-logo.png" alt="NSUT Official Seal" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
-        <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#111827', marginBottom: '8px', lineHeight: 1.15 }}>
+        <h1 style={{ fontSize: 'clamp(24px, 5vw, 28px)', fontWeight: 700, color: '#111827', marginBottom: '8px', lineHeight: 1.15 }}>
           NSUT Identity
         </h1>
-        <p style={{ fontSize: '13.5px', color: '#64748b', marginBottom: '32px' }}>
+        <p style={{ fontSize: '13.5px', color: '#64748b', marginBottom: '28px' }}>
           Central Identity &amp; Access Management (IAM) Portal
         </p>
 
         {error && (
-          <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', color: '#b91c1c', fontSize: '13px', marginBottom: '24px', textAlign: 'left', fontWeight: 500 }}>
+          <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', color: '#b91c1c', fontSize: '13px', marginBottom: '22px', textAlign: 'left', fontWeight: 500, lineHeight: 1.5 }}>
             {error}
           </div>
         )}
 
-        <button className="btn" onClick={startLogin} style={{ width: '100%', justifyContent: 'center', padding: '13px 20px', fontSize: '14.5px', borderRadius: '14px', background: '#111827', color: '#ffffff', fontWeight: 600, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.12)' }}>
+        <button className="btn" onClick={startLogin} style={{ width: '100%', justifyContent: 'center', padding: '13px 20px', fontSize: '14.5px', borderRadius: '14px', background: '#111827', color: '#ffffff', fontWeight: 600, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.12)', whiteSpace: 'normal' }}>
           Sign In with Google Workspace
         </button>
 
-        <div style={{ marginTop: '28px', fontSize: '12px', color: '#64748b', lineHeight: 1.6 }}>
+        <div style={{ marginTop: '24px', fontSize: '12px', color: '#64748b', lineHeight: 1.6 }}>
           Restricted to authorized <strong style={{ color: '#0f172a' }}>@nsut.ac.in</strong> or <strong style={{ color: '#0f172a' }}>@nsit.ac.in</strong> accounts.<br />
           Single Sign-On protected by NSUT OpenID Connect Provider 2.0.
         </div>
@@ -473,10 +517,10 @@ function Overview({ onViewTab }) {
       </div>
 
       {/* 2-Column Main Section */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(320px, 1fr)', gap: '20px' }}>
+      <div className="overview-grid">
         {/* Left: Real Administrative Activity Feed */}
-        <div className="table-card" style={{ padding: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div className="table-card" style={{ padding: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a' }}>Recent Activity</h3>
               <p style={{ margin: '3px 0 0', fontSize: '12.5px', color: '#64748b' }}>
@@ -496,7 +540,7 @@ function Overview({ onViewTab }) {
             )}
             {recentLogs.map((log) => (
               <div key={log.id} className="activity-item">
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div className="activity-action">{formatAction(log.action)}</div>
                   <div className="activity-meta">
                     <span style={{ color: '#0f172a', fontWeight: 500 }}>
@@ -516,8 +560,8 @@ function Overview({ onViewTab }) {
         </div>
 
         {/* Right: Quick Actions & Connected Apps */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="table-card" style={{ padding: '22px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: 0 }}>
+          <div className="table-card" style={{ padding: '20px' }}>
             <h3 style={{ marginBottom: '4px', fontSize: '15.5px', color: '#0f172a' }}>Quick Actions</h3>
             <p style={{ marginBottom: '16px', fontSize: '12.5px', color: '#64748b' }}>
               Common identity management tasks.
@@ -544,13 +588,13 @@ function Overview({ onViewTab }) {
             </div>
           </div>
 
-          <div className="table-card" style={{ padding: '22px' }}>
+          <div className="table-card" style={{ padding: '20px' }}>
             <h3 style={{ marginBottom: '4px', fontSize: '15.5px', color: '#0f172a' }}>Connected Applications</h3>
             <p style={{ marginBottom: '14px', fontSize: '12.5px', color: '#64748b' }}>
               Active client platforms using NSUT single sign-on.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>CRAS <span style={{ fontWeight: 400, color: '#64748b' }}>· Rooms &amp; Timetables</span></span>
                 <span className="badge active">Connected</span>
               </div>
@@ -620,18 +664,7 @@ function Directory() {
         </button>
       </div>
 
-      <div style={{
-        background: '#ffffff',
-        border: '1px solid var(--card-border)',
-        borderRadius: '14px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-        padding: '14px 18px',
-        marginBottom: '20px',
-        display: 'grid',
-        gridTemplateColumns: 'minmax(280px, 1.8fr) minmax(220px, 1.1fr) minmax(180px, 0.9fr)',
-        gap: '16px',
-        alignItems: 'center',
-      }}>
+      <div className="filter-bar filter-bar-3">
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', marginBottom: '6px' }}>
             Search
@@ -688,83 +721,85 @@ function Directory() {
       </div>
 
       <div className="table-card">
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Campus ID / Roll No</th>
-              <th>Department / Academics</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
+        <div className="table-scroll-wrap">
+          <table>
+            <thead>
               <tr>
-                <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
-                  Loading directory records…
-                </td>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Campus ID / Roll No</th>
+                <th>Department / Academics</th>
+                <th>Status</th>
               </tr>
-            )}
-            {!loading && users.length === 0 && (
-              <tr>
-                <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
-                  No campus identities match the current filters.
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              users.map((u) => (
-                <tr key={u.id} className="interactive-row" onClick={() => setSelectedUserId(u.id)}>
-                  <td>
-                    <strong style={{ color: '#0f172a', fontWeight: 600 }}>{u.name}</strong>
-                  </td>
-                  <td className="mono" style={{ color: '#1d4ed8', fontWeight: 500 }}>
-                    {u.email}
-                  </td>
-                  <td>
-                    {u.roll_no ? (
-                      <span className="mono" style={{ fontWeight: 600, color: '#0f172a' }}>{u.roll_no}</span>
-                    ) : u.employee_id ? (
-                      <span className="mono" style={{ fontWeight: 600, color: '#0f172a' }}>Emp #{u.employee_id}</span>
-                    ) : (
-                      <span className="text-muted">—</span>
-                    )}
-                  </td>
-                  <td>
-                    {u.roll_no ? (
-                      <div style={{ fontSize: '12.5px' }}>
-                        <div style={{ color: '#0f172a', fontWeight: 600 }}>
-                          {u.dept || u.branch || 'Student'} {u.degree ? <span style={{ color: '#64748b', fontWeight: 400 }}>({u.degree})</span> : null}
-                        </div>
-                        <div className="mono text-muted" style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>
-                          {[
-                            u.year ? `Year ${u.year}` : null,
-                            u.semester ? `Sem ${u.semester}` : null,
-                            u.section ? `Sec ${u.section}` : null,
-                            u.group_no ? `Grp ${u.group_no}` : null,
-                            u.batch_no ? `Batch ${u.batch_no}` : null,
-                          ].filter(Boolean).join(' · ')}
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: '12.5px' }}>
-                        <div style={{ color: '#0f172a', fontWeight: 600 }}>{u.dept || 'General Campus'}</div>
-                        {u.designation && (
-                          <div className="text-muted" style={{ fontSize: '11.5px', marginTop: '2px' }}>{u.designation}</div>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <span className={`badge ${u.status === 'ACTIVE' ? 'active' : u.status === 'SUSPENDED' ? 'suspended' : 'archived'}`}>
-                      {u.status}
-                    </span>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                    Loading directory records…
                   </td>
                 </tr>
-              ))}
-          </tbody>
-        </table>
+              )}
+              {!loading && users.length === 0 && (
+                <tr>
+                  <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                    No campus identities match the current filters.
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                users.map((u) => (
+                  <tr key={u.id} className="interactive-row" onClick={() => setSelectedUserId(u.id)}>
+                    <td data-label="Name">
+                      <strong style={{ color: '#0f172a', fontWeight: 600 }}>{u.name}</strong>
+                    </td>
+                    <td data-label="Email" className="mono" style={{ color: '#1d4ed8', fontWeight: 500 }}>
+                      <span>{u.email}</span>
+                    </td>
+                    <td data-label="Campus ID">
+                      {u.roll_no ? (
+                        <span className="mono" style={{ fontWeight: 600, color: '#0f172a' }}>{u.roll_no}</span>
+                      ) : u.employee_id ? (
+                        <span className="mono" style={{ fontWeight: 600, color: '#0f172a' }}>Emp #{u.employee_id}</span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
+                    </td>
+                    <td data-label="Department">
+                      {u.roll_no ? (
+                        <div style={{ fontSize: '12.5px' }}>
+                          <div style={{ color: '#0f172a', fontWeight: 600 }}>
+                            {u.dept || u.branch || 'Student'} {u.degree ? <span style={{ color: '#64748b', fontWeight: 400 }}>({u.degree})</span> : null}
+                          </div>
+                          <div className="mono text-muted" style={{ fontSize: '11.5px', color: '#475569', marginTop: '2px' }}>
+                            {[
+                              u.year ? `Year ${u.year}` : null,
+                              u.semester ? `Sem ${u.semester}` : null,
+                              u.section ? `Sec ${u.section}` : null,
+                              u.group_no ? `Grp ${u.group_no}` : null,
+                              u.batch_no ? `Batch ${u.batch_no}` : null,
+                            ].filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '12.5px' }}>
+                          <div style={{ color: '#0f172a', fontWeight: 600 }}>{u.dept || 'General Campus'}</div>
+                          {u.designation && (
+                            <div className="text-muted" style={{ fontSize: '11.5px', marginTop: '2px' }}>{u.designation}</div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                    <td data-label="Status">
+                      <span className={`badge ${u.status === 'ACTIVE' ? 'active' : u.status === 'SUSPENDED' ? 'suspended' : 'archived'}`}>
+                        {u.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
 
         <div className="table-pagination">
           <div>
@@ -1000,11 +1035,11 @@ function UserSlideDrawer({ userId, onClose }) {
 
               return (
                 <div key={appAccess.app} className="app-access-row">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
                     <div>
                       <strong style={{ color: '#0f172a' }}>{appAccess.app}</strong> · <span className="text-muted">{appAccess.name}</span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       {appAccess.role ? (
                         <span className="badge blue">
                           {appAccess.roles.map((r) => r.replace(/_/g, ' ')).join(' + ')}
@@ -1036,7 +1071,7 @@ function UserSlideDrawer({ userId, onClose }) {
                   )}
 
                   {appAccess.assignments.map((asg) => (
-                    <div key={asg.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border-subtle)' }}>
+                    <div key={asg.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed var(--border-subtle)', flexWrap: 'wrap', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <strong style={{ color: '#0f172a' }}>{asg.role.replace(/_/g, ' ')}</strong>
                         {formatScope(asg.scope)}
@@ -1089,12 +1124,12 @@ function UserSlideDrawer({ userId, onClose }) {
                         {/* Visual Human-Friendly Scope Selector */}
                         <div style={{ marginTop: '4px' }}>
                           <label className="field-label" style={{ fontSize: '11px', marginBottom: '6px' }}>Access Scope</label>
-                          <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px', background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
                             <button
                               type="button"
                               className="btn sm"
                               style={{
-                                flex: 1,
+                                flex: '1 1 110px',
                                 justifyContent: 'center',
                                 padding: '5px 8px',
                                 fontSize: '11.5px',
@@ -1112,7 +1147,7 @@ function UserSlideDrawer({ userId, onClose }) {
                               type="button"
                               className="btn sm"
                               style={{
-                                flex: 1,
+                                flex: '1 1 130px',
                                 justifyContent: 'center',
                                 padding: '5px 8px',
                                 fontSize: '11.5px',
@@ -1142,7 +1177,7 @@ function UserSlideDrawer({ userId, onClose }) {
                                 type="button"
                                 className="btn sm"
                                 style={{
-                                  flex: 1,
+                                  flex: '1 1 110px',
                                   justifyContent: 'center',
                                   padding: '5px 8px',
                                   fontSize: '11.5px',
@@ -1167,7 +1202,7 @@ function UserSlideDrawer({ userId, onClose }) {
 
                           {scopeType === 'ACADEMIC' && (
                             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' }}>
-                              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '8px' }}>
+                              <div className="scope-academic-grid">
                                 <div>
                                   <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Branch / Stream</label>
                                   <input
@@ -1344,13 +1379,13 @@ function Applications() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '16px' }}>
+      <div className="apps-grid">
         {loading && <div style={{ color: '#64748b' }}>Loading applications…</div>}
         {apps.map((a) => (
           <div key={a.id} className="table-card" style={{ padding: '22px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '8px' }}>
               <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a' }}>{a.id}</h3>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span className={`badge ${a.confidential ? 'indigo' : 'blue'}`}>
                   {a.confidential ? 'Confidential Client' : 'Public Client (PKCE)'}
                 </span>
@@ -1394,7 +1429,7 @@ function Applications() {
             <div className="section-label">Authorized Redirect URIs</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {a.redirect_uris.map((uri) => (
-                <code key={uri} className="mono text-muted" style={{ fontSize: '11.5px', background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #f1f5f9' }}>{uri}</code>
+                <code key={uri} className="mono text-muted" style={{ fontSize: '11.5px', background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #f1f5f9', wordBreak: 'break-all' }}>{uri}</code>
               ))}
             </div>
           </div>
@@ -1589,9 +1624,9 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', minHeight: '420px' }}>
+          <div className="role-editor-grid">
             {/* Left: Role Navigation & Creation */}
-            <div style={{ borderRight: '1px solid var(--card-border)', padding: '18px', background: '#fafbfc', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div className="role-editor-sidebar">
               <div>
                 <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b', marginBottom: '10px' }}>
                   Defined Roles ({roles.length})
@@ -1657,9 +1692,9 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
             <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
               {currentRole ? (
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--card-border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--card-border)', flexWrap: 'wrap', gap: '10px' }}>
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                         <h3 style={{ margin: 0, fontSize: '17px', color: '#0f172a' }}>{currentRole.role}</h3>
                         {currentRole.is_default && <span className="badge active">Default Role</span>}
                       </div>
@@ -1668,7 +1703,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#475569', cursor: 'pointer' }}>
                         <input
                           type="checkbox"
@@ -1691,7 +1726,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                   </div>
 
                   {/* Resource Permissions Header & Bulk Toggles */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
                     <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b' }}>
                       Allowed Resources ({currentRole.permissions.length} of {appPermissions.length})
                     </div>
@@ -1706,7 +1741,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                   </div>
 
                   {/* Checklist of Resources */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
                     {appPermissions.length === 0 && (
                       <div style={{ padding: '20px', color: '#94a3b8', fontSize: '12.5px', textAlign: 'center', gridColumn: 'span 2' }}>
                         No resources registered for this application yet.
@@ -1758,10 +1793,10 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                         <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#1e3a8a', marginBottom: '8px' }}>
                           Add Resource to {app.id} (resource:action)
                         </div>
-                        <div style={{ display: 'flex', gap: '6px', marginBottom: '6px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
                           <input
                             className="input mono"
-                            style={{ height: '34px', fontSize: '12px', flex: 1 }}
+                            style={{ height: '34px', fontSize: '12px', flex: '1 1 160px' }}
                             placeholder="e.g. rooms:approve"
                             value={newResourceKey}
                             onChange={(e) => setNewResourceKey(e.target.value)}
@@ -1769,13 +1804,13 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                           />
                           <input
                             className="input"
-                            style={{ height: '34px', fontSize: '12px', flex: 1.5 }}
+                            style={{ height: '34px', fontSize: '12px', flex: '1.5 1 200px' }}
                             placeholder="Description (optional)"
                             value={newResourceDesc}
                             onChange={(e) => setNewResourceDesc(e.target.value)}
                           />
                         </div>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                           <button type="submit" className="btn primary sm" style={{ fontSize: '11.5px' }}>
                             Add &amp; Grant to {currentRole.role}
                           </button>
@@ -1885,18 +1920,7 @@ function ResourcesCatalog() {
       </div>
 
       {/* Filter toolbar */}
-      <div style={{
-        background: '#ffffff',
-        border: '1px solid var(--card-border)',
-        borderRadius: '14px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-        padding: '14px 18px',
-        marginBottom: '20px',
-        display: 'grid',
-        gridTemplateColumns: 'minmax(280px, 1.8fr) minmax(200px, 1fr)',
-        gap: '16px',
-        alignItems: 'center',
-      }}>
+      <div className="filter-bar filter-bar-2">
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', marginBottom: '6px' }}>
             Search Resources
@@ -1935,49 +1959,53 @@ function ResourcesCatalog() {
 
       {/* Table */}
       <div className="table-card">
-        <table>
-          <thead>
-            <tr>
-              <th>Resource Key</th>
-              <th>Application</th>
-              <th>Description</th>
-              <th style={{ textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr><td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>Loading campus resources…</td></tr>
-            )}
-            {!loading && filtered.length === 0 && (
-              <tr><td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>No resources match the current filter.</td></tr>
-            )}
-            {!loading && filtered.map((r) => (
-              <tr key={`${r.app_id}-${r.permission}`}>
-                <td>
-                  <strong className="mono" style={{ color: '#0f172a', fontSize: '13px' }}>
-                    {r.permission}
-                  </strong>
-                </td>
-                <td>
-                  <span className="badge blue">{r.app_id}</span>
-                  <span className="text-muted" style={{ fontSize: '12px', marginLeft: '6px' }}>{r.app_name}</span>
-                </td>
-                <td style={{ fontSize: '12.5px', color: '#475569', maxWidth: '320px' }}>
-                  {r.description || <span className="text-muted">—</span>}
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <button
-                    className="btn danger sm"
-                    style={{ padding: '3px 8px', fontSize: '11.5px' }}
-                    onClick={() => handleDeleteResource(r.app_id, r.permission)}
-                  >
-                    Delete
-                  </button>
-                </td>
+        <div className="table-scroll-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Resource Key</th>
+                <th>Application</th>
+                <th>Description</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>Loading campus resources…</td></tr>
+              )}
+              {!loading && filtered.length === 0 && (
+                <tr><td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>No resources match the current filter.</td></tr>
+              )}
+              {!loading && filtered.map((r) => (
+                <tr key={`${r.app_id}-${r.permission}`}>
+                  <td data-label="Resource Key">
+                    <strong className="mono" style={{ color: '#0f172a', fontSize: '13px' }}>
+                      {r.permission}
+                    </strong>
+                  </td>
+                  <td data-label="Application">
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <span className="badge blue">{r.app_id}</span>
+                      <span className="text-muted" style={{ fontSize: '12px' }}>{r.app_name}</span>
+                    </div>
+                  </td>
+                  <td data-label="Description" style={{ fontSize: '12.5px', color: '#475569', maxWidth: '320px' }}>
+                    <span>{r.description || <span className="text-muted">—</span>}</span>
+                  </td>
+                  <td data-label="Actions" style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn danger sm"
+                      style={{ padding: '3px 8px', fontSize: '11.5px' }}
+                      onClick={() => handleDeleteResource(r.app_id, r.permission)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {newResourceOpen && (
@@ -2187,7 +2215,7 @@ function IngestionCenter() {
       </div>
 
       {/* 3 Action Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+      <div className="ingest-cards-grid">
         <div className="table-card" style={{ padding: '24px' }}>
           <h3 style={{ marginBottom: '8px', fontSize: '16px', color: '#0f172a' }}>Upload Student Roster</h3>
           <p style={{ marginBottom: '16px', fontSize: '13px', color: '#64748b' }}>
@@ -2262,19 +2290,19 @@ function IngestionCenter() {
       {/* Live Job Inspection Telemetry Card (Active / Selected) */}
       {activeJob && (
         <div className="job-progress-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span className={`badge ${activeJob.type === 'IMPORT' ? 'blue' : activeJob.type === 'EXPORT' ? 'indigo' : 'active'}`}>
                   {activeJob.type}
                 </span>
-                <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a' }}>{activeJob.filename || 'Job Details'}</h3>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', wordBreak: 'break-word' }}>{activeJob.filename || 'Job Details'}</h3>
               </div>
-              <div className="mono text-muted" style={{ fontSize: '11.5px', marginTop: '4px' }}>
+              <div className="mono text-muted" style={{ fontSize: '11.5px', marginTop: '4px', wordBreak: 'break-all' }}>
                 ID: {activeJob.id} · Initiated by: {activeJob.actor_email || 'Admin'}
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <span className={`badge ${activeJob.status === 'COMPLETED' ? 'active' : activeJob.status === 'FAILED' ? 'suspended' : 'blue'}`}>
                 {activeJob.status === 'PROCESSING' && <span className="pulse-indicator" />}
                 {activeJob.status}
@@ -2319,7 +2347,7 @@ function IngestionCenter() {
           )}
 
           {activeJob.failed_count > 0 && (
-            <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <div style={{ fontSize: '13px', color: '#b91c1c' }}>
                 {activeJob.failed_count.toLocaleString()} records encountered validation or database errors.
               </div>
@@ -2335,7 +2363,7 @@ function IngestionCenter() {
 
       {/* Persistent Job History */}
       <div style={{ marginTop: '28px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
           <div>
             <h2 style={{ fontSize: '18px', color: '#0f172a', margin: 0 }}>Job History</h2>
             <p style={{ fontSize: '13px', color: '#64748b', margin: '3px 0 0' }}>
@@ -2350,132 +2378,136 @@ function IngestionCenter() {
         </div>
 
         <div className="table-card">
-          <table>
-            <thead>
-              <tr>
-                <th>Operation</th>
-                <th>Status &amp; Progress</th>
-                <th>Records</th>
-                <th>Initiated By</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loadingJobs && (
+          <div className="table-scroll-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
-                    Loading job history…
-                  </td>
+                  <th>Operation</th>
+                  <th>Status &amp; Progress</th>
+                  <th>Records</th>
+                  <th>Initiated By</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
-              )}
-              {!loadingJobs && jobs.length === 0 && (
-                <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
-                    No jobs recorded yet. Ingest a roster or export the directory to start.
-                  </td>
-                </tr>
-              )}
-              {!loadingJobs &&
-                jobs.map((j) => (
-                  <tr key={j.id} className="interactive-row" onClick={() => setActiveJob(j)}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span className={`badge ${j.type === 'IMPORT' ? 'blue' : j.type === 'EXPORT' ? 'indigo' : 'active'}`}>
-                          {j.type}
-                        </span>
-                        <div>
-                          <strong style={{ color: '#0f172a', fontWeight: 600, fontSize: '13px' }}>
-                            {j.filename || j.type}
-                          </strong>
-                          <div className="mono text-muted" style={{ fontSize: '11px' }}>ID: {j.id}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ minWidth: '160px' }}>
-                      {j.status === 'PROCESSING' ? (
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1d4ed8' }}>
-                            <span className="pulse-indicator" /> Processing ({j.progress_pct}%)
-                          </div>
-                          <div className="cell-progress-bar">
-                            <div className="cell-progress-fill" style={{ width: `${j.progress_pct || 15}%` }} />
-                          </div>
-                          <div className="mono text-muted" style={{ fontSize: '11px', marginTop: '3px' }}>
-                            {j.processed_rows?.toLocaleString() ?? 0} / {j.total_rows ? j.total_rows.toLocaleString() : '?'} rows
-                          </div>
-                        </div>
-                      ) : j.status === 'COMPLETED' ? (
-                        <div>
-                          <span className="badge active">COMPLETED</span>
-                          {j.completed_at && j.started_at && (
-                            <div className="text-muted" style={{ fontSize: '11px', marginTop: '3px' }}>
-                              Done in {Math.max(1, Math.round((new Date(j.completed_at) - new Date(j.started_at)) / 1000))}s
-                            </div>
-                          )}
-                        </div>
-                      ) : j.status === 'FAILED' ? (
-                        <div>
-                          <span className="badge suspended">FAILED</span>
-                          <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '3px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {j.error_message || 'Execution error'}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="badge blue">QUEUED</span>
-                      )}
-                    </td>
-                    <td>
-                      <div style={{ fontSize: '12.5px' }}>
-                        <div>
-                          <strong style={{ color: '#0f172a' }}>{j.total_rows?.toLocaleString() ?? '—'}</strong> total
-                        </div>
-                        <div className="mono text-muted" style={{ fontSize: '11px', marginTop: '2px' }}>
-                          <span style={{ color: 'var(--emerald)' }}>+{j.created_count ?? 0}</span> ·{' '}
-                          <span style={{ color: '#2563eb' }}>{j.updated_count ?? 0} updated</span>
-                          {(j.failed_count ?? 0) > 0 && (
-                            <span style={{ color: 'var(--rose)' }}> · {j.failed_count} failed</span>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ fontSize: '12.5px', color: '#0f172a' }}>
-                        {j.actor_email ? j.actor_email.split('@')[0] : 'System'}
-                      </div>
-                      <div className="text-muted" style={{ fontSize: '11px' }}>
-                        {new Date(j.created_at).toLocaleString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        {j.type === 'EXPORT' && j.status === 'COMPLETED' && (
-                          <button className="btn primary sm" onClick={() => downloadExportFile(j.id)}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <IconDownload size={12} /> CSV
-                            </span>
-                          </button>
-                        )}
-                        {j.type === 'IMPORT' && (j.failed_count ?? 0) > 0 && (
-                          <button className="btn danger sm" onClick={() => downloadErrorReport(j.id)}>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                              <IconDownload size={12} /> Errors
-                            </span>
-                          </button>
-                        )}
-                        <button className="btn sm" onClick={() => setActiveJob(j)}>
-                          Details
-                        </button>
-                      </div>
+              </thead>
+              <tbody>
+                {loadingJobs && (
+                  <tr>
+                    <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                      Loading job history…
                     </td>
                   </tr>
-                ))}
-            </tbody>
-          </table>
+                )}
+                {!loadingJobs && jobs.length === 0 && (
+                  <tr>
+                    <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                      No jobs recorded yet. Ingest a roster or export the directory to start.
+                    </td>
+                  </tr>
+                )}
+                {!loadingJobs &&
+                  jobs.map((j) => (
+                    <tr key={j.id} className="interactive-row" onClick={() => setActiveJob(j)}>
+                      <td data-label="Operation">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span className={`badge ${j.type === 'IMPORT' ? 'blue' : j.type === 'EXPORT' ? 'indigo' : 'active'}`}>
+                            {j.type}
+                          </span>
+                          <div>
+                            <strong style={{ color: '#0f172a', fontWeight: 600, fontSize: '13px' }}>
+                              {j.filename || j.type}
+                            </strong>
+                            <div className="mono text-muted" style={{ fontSize: '11px' }}>ID: {j.id}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td data-label="Status" style={{ minWidth: '160px' }}>
+                        {j.status === 'PROCESSING' ? (
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', fontSize: '12px', fontWeight: 600, color: '#1d4ed8' }}>
+                              <span className="pulse-indicator" /> Processing ({j.progress_pct}%)
+                            </div>
+                            <div className="cell-progress-bar">
+                              <div className="cell-progress-fill" style={{ width: `${j.progress_pct || 15}%` }} />
+                            </div>
+                            <div className="mono text-muted" style={{ fontSize: '11px', marginTop: '3px' }}>
+                              {j.processed_rows?.toLocaleString() ?? 0} / {j.total_rows ? j.total_rows.toLocaleString() : '?'} rows
+                            </div>
+                          </div>
+                        ) : j.status === 'COMPLETED' ? (
+                          <div>
+                            <span className="badge active">COMPLETED</span>
+                            {j.completed_at && j.started_at && (
+                              <div className="text-muted" style={{ fontSize: '11px', marginTop: '3px' }}>
+                                Done in {Math.max(1, Math.round((new Date(j.completed_at) - new Date(j.started_at)) / 1000))}s
+                              </div>
+                            )}
+                          </div>
+                        ) : j.status === 'FAILED' ? (
+                          <div>
+                            <span className="badge suspended">FAILED</span>
+                            <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '3px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {j.error_message || 'Execution error'}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="badge blue">QUEUED</span>
+                        )}
+                      </td>
+                      <td data-label="Records">
+                        <div style={{ fontSize: '12.5px' }}>
+                          <div>
+                            <strong style={{ color: '#0f172a' }}>{j.total_rows?.toLocaleString() ?? '—'}</strong> total
+                          </div>
+                          <div className="mono text-muted" style={{ fontSize: '11px', marginTop: '2px' }}>
+                            <span style={{ color: 'var(--emerald)' }}>+{j.created_count ?? 0}</span> ·{' '}
+                            <span style={{ color: '#2563eb' }}>{j.updated_count ?? 0} updated</span>
+                            {(j.failed_count ?? 0) > 0 && (
+                              <span style={{ color: 'var(--rose)' }}> · {j.failed_count} failed</span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td data-label="Initiated By">
+                        <div>
+                          <div style={{ fontSize: '12.5px', color: '#0f172a' }}>
+                            {j.actor_email ? j.actor_email.split('@')[0] : 'System'}
+                          </div>
+                          <div className="text-muted" style={{ fontSize: '11px' }}>
+                            {new Date(j.created_at).toLocaleString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        </div>
+                      </td>
+                      <td data-label="Actions" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          {j.type === 'EXPORT' && j.status === 'COMPLETED' && (
+                            <button className="btn primary sm" onClick={() => downloadExportFile(j.id)}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <IconDownload size={12} /> CSV
+                              </span>
+                            </button>
+                          )}
+                          {j.type === 'IMPORT' && (j.failed_count ?? 0) > 0 && (
+                            <button className="btn danger sm" onClick={() => downloadErrorReport(j.id)}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <IconDownload size={12} /> Errors
+                              </span>
+                            </button>
+                          )}
+                          <button className="btn sm" onClick={() => setActiveJob(j)}>
+                            Details
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </>
@@ -2588,18 +2620,7 @@ function AuditStream() {
         </div>
       </div>
 
-      <div style={{
-        background: '#ffffff',
-        border: '1px solid var(--card-border)',
-        borderRadius: '14px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-        padding: '14px 18px',
-        marginBottom: '20px',
-        display: 'grid',
-        gridTemplateColumns: 'minmax(280px, 1.8fr) minmax(200px, 1fr)',
-        gap: '16px',
-        alignItems: 'center',
-      }}>
+      <div className="filter-bar filter-bar-2">
         <div>
           <div style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', marginBottom: '6px' }}>
             Filter by Action
@@ -2633,58 +2654,64 @@ function AuditStream() {
       </div>
 
       <div className="table-card">
-        <table>
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Action</th>
-              <th>Application</th>
-              <th>Actor</th>
-              <th>Target</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr><td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>Loading audit records…</td></tr>
-            )}
-            {!loading && logs.length === 0 && (
-              <tr><td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>No audit records found matching the filter criteria.</td></tr>
-            )}
-            {!loading && logs.map((log) => (
-              <tr key={log.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                <td className="mono text-muted" style={{ fontSize: '11px', whiteSpace: 'nowrap', verticalAlign: 'middle', padding: '12px 14px' }}>
-                  {new Date(log.created_at).toLocaleString()}
-                </td>
-                <td style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
-                  <span className="badge blue">{formatAction(log.action)}</span>
-                </td>
-                <td style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
-                  <strong style={{ color: '#0f172a' }}>{log.app_id || 'Central IAM'}</strong>
-                </td>
-                <td style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
-                  <div style={{ fontWeight: 500, color: '#0f172a', fontSize: '12px' }}>
-                    {log.actor_name || log.actor_email || log.actor_id || '—'}
-                  </div>
-                  {(log.actor_name || log.actor_email) && log.actor_id && (
-                    <div className="mono text-muted" style={{ fontSize: '10.5px' }}>{log.actor_id}</div>
-                  )}
-                </td>
-                <td style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
-                  <div style={{ fontWeight: 500, color: '#0f172a', fontSize: '12px' }}>
-                    {log.target_name || log.target_email || log.target_id || '—'}
-                  </div>
-                  {(log.target_name || log.target_email) && log.target_id && (
-                    <div className="mono text-muted" style={{ fontSize: '10.5px' }}>{log.target_id}</div>
-                  )}
-                </td>
-                <td style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5, whiteSpace: 'normal', wordBreak: 'break-word', padding: '12px 14px' }}>
-                  {describeAuditLog(log)}
-                </td>
+        <div className="table-scroll-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>Application</th>
+                <th>Actor</th>
+                <th>Target</th>
+                <th>Description</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>Loading audit records…</td></tr>
+              )}
+              {!loading && logs.length === 0 && (
+                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>No audit records found matching the filter criteria.</td></tr>
+              )}
+              {!loading && logs.map((log) => (
+                <tr key={log.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                  <td data-label="Timestamp" className="mono text-muted" style={{ fontSize: '11px', whiteSpace: 'nowrap', verticalAlign: 'middle', padding: '12px 14px' }}>
+                    <span>{new Date(log.created_at).toLocaleString()}</span>
+                  </td>
+                  <td data-label="Action" style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
+                    <span className="badge blue">{formatAction(log.action)}</span>
+                  </td>
+                  <td data-label="Application" style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
+                    <strong style={{ color: '#0f172a' }}>{log.app_id || 'Central IAM'}</strong>
+                  </td>
+                  <td data-label="Actor" style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
+                    <div>
+                      <div style={{ fontWeight: 500, color: '#0f172a', fontSize: '12px' }}>
+                        {log.actor_name || log.actor_email || log.actor_id || '—'}
+                      </div>
+                      {(log.actor_name || log.actor_email) && log.actor_id && (
+                        <div className="mono text-muted" style={{ fontSize: '10.5px' }}>{log.actor_id}</div>
+                      )}
+                    </div>
+                  </td>
+                  <td data-label="Target" style={{ verticalAlign: 'middle', padding: '12px 14px' }}>
+                    <div>
+                      <div style={{ fontWeight: 500, color: '#0f172a', fontSize: '12px' }}>
+                        {log.target_name || log.target_email || log.target_id || '—'}
+                      </div>
+                      {(log.target_name || log.target_email) && log.target_id && (
+                        <div className="mono text-muted" style={{ fontSize: '10.5px' }}>{log.target_id}</div>
+                      )}
+                    </div>
+                  </td>
+                  <td data-label="Description" style={{ fontSize: '12.5px', color: '#334155', lineHeight: 1.5, whiteSpace: 'normal', wordBreak: 'break-word', padding: '12px 14px' }}>
+                    <span>{describeAuditLog(log)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );

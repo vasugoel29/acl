@@ -124,15 +124,18 @@ export async function oidcRoutes(app: FastifyInstance) {
       return oauthError(reply, 400, 'invalid_request', 'unknown or expired state');
     }
     const p = JSON.parse(raw);
-    const fail = (error: string) => reply.redirect(redirectWith(p.redirectUri, { error, state: p.state }));
-    if (q.error || !q.code) return fail('access_denied');
+    const fail = (error: string, error_description?: string) =>
+      reply.redirect(redirectWith(p.redirectUri, { error, error_description, state: p.state }));
+    if (q.error || !q.code) {
+      return fail('access_denied', 'Sign-in was cancelled or denied. Please try again.');
+    }
 
     try {
       const identity = await googleExchange({ code: q.code, verifier: p.gVerifier, nonce: p.gNonce, callbackUrl: callbackUrl() });
       const { user } = await upsertFromGoogle(identity, req.ip);
       if (user.status !== 'ACTIVE') {
         await audit({ actorId: user.id, action: 'LOGIN_DENIED', appId: p.appId, ip: req.ip, metadata: { status: user.status } });
-        return fail('access_denied');
+        return fail('access_denied', `Access denied. Your campus account is currently ${user.status.toLowerCase()}.`);
       }
       const code = randomToken(32);
       await pool.query(
@@ -145,10 +148,13 @@ export async function oidcRoutes(app: FastifyInstance) {
     } catch (e) {
       if (e instanceof DomainError) {
         await audit({ action: 'LOGIN_REJECTED', appId: p.appId, ip: req.ip, metadata: { reason: e.message } });
-        return fail('access_denied');
+        return fail(
+          'access_denied',
+          'Access denied. Please sign in with an authorized @nsut.ac.in or @nsit.ac.in Google Workspace account.',
+        );
       }
       req.log.error(e);
-      return fail('server_error');
+      return fail('server_error', 'An unexpected authentication error occurred. Please try again.');
     }
   });
 

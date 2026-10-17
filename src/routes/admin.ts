@@ -405,12 +405,22 @@ export async function adminRoutes(app: FastifyInstance) {
         q: z.string().optional(),
         dept: z.string().optional(),
         status: z.string().optional(),
+        sort: z.enum(['name_asc', 'name_desc', 'roll_asc', 'newest']).default('name_asc'),
         limit: z.coerce.number().int().min(1).max(200).default(50),
         offset: z.coerce.number().int().min(0).default(0),
       }).parse(req.query);
 
       const safeQ = q.q ? escapeLike(q.q) : null;
       const safeDept = q.dept ? escapeLike(q.dept) : null;
+
+      const orderByClause =
+        q.sort === 'name_desc'
+          ? 'LOWER(name) DESC, email ASC'
+          : q.sort === 'roll_asc'
+            ? 'roll_no ASC NULLS LAST, LOWER(name) ASC'
+            : q.sort === 'newest'
+              ? 'created_at DESC'
+              : 'LOWER(name) ASC, email ASC';
 
       const [r, countRes] = await Promise.all([
         pool.query(
@@ -421,7 +431,7 @@ export async function adminRoutes(app: FastifyInstance) {
             WHERE ($1::text IS NULL OR email ILIKE '%'||$1||'%' ESCAPE '\\' OR name ILIKE '%'||$1||'%' ESCAPE '\\' OR roll_no ILIKE '%'||$1||'%' ESCAPE '\\' OR twelve_digit_roll_no::text ILIKE '%'||$1||'%' ESCAPE '\\')
               AND ($2::text IS NULL OR dept ILIKE '%'||$2||'%' ESCAPE '\\' OR branch ILIKE '%'||$2||'%' ESCAPE '\\')
               AND ($3::text IS NULL OR status=$3)
-            ORDER BY created_at DESC LIMIT $4 OFFSET $5`,
+            ORDER BY ${orderByClause} LIMIT $4 OFFSET $5`,
           [safeQ, safeDept, q.status ?? null, q.limit, q.offset],
         ),
         pool.query(

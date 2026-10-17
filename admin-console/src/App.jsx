@@ -311,7 +311,6 @@ export default function App() {
           </div>
 
           <div className="mobile-header-actions">
-            <span className="environment-pill">Active</span>
             <div className="user-avatar-circle" title={`${session.user.name} (${session.user.email})`}>
               {userInitials}
             </div>
@@ -379,7 +378,6 @@ export default function App() {
               <img src="/nsut-logo.png" alt="NSUT Seal" style={{ width: '22px', height: '22px', objectFit: 'contain', flexShrink: 0 }} />
               <span className="tenant-title">Netaji Subhas University of Technology</span>
             </div>
-            <span className="environment-pill">Active</span>
           </div>
           <div className="top-bar-right">
             <span className="mono top-bar-email">{session.user.email}</span>
@@ -614,7 +612,7 @@ function Directory() {
   const [search, setSearch] = useState('');
   const [dept, setDept] = useState('');
   const [departments, setDepartments] = useState([]);
-  const [status, setStatus] = useState('');
+  const [sort, setSort] = useState('name_asc');
   const [page, setPage] = useState(0);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [createUserOpen, setCreateUserOpen] = useState(false);
@@ -634,9 +632,9 @@ function Directory() {
       const q = new URLSearchParams({
         limit: String(limit),
         offset: String(page * limit),
+        sort: sort || 'name_asc',
         ...(debouncedSearch ? { q: debouncedSearch } : {}),
         ...(dept ? { dept } : {}),
-        ...(status ? { status } : {}),
       });
       const res = await api(`/v1/users?${q.toString()}`);
       setUsers(res.users);
@@ -646,7 +644,7 @@ function Directory() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, dept, status, page]);
+  }, [debouncedSearch, dept, sort, page]);
 
   useEffect(() => {
     loadUsers();
@@ -702,18 +700,18 @@ function Directory() {
 
         <div>
           <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: '#64748b', marginBottom: '6px' }}>
-            Status
+            Sort By
           </div>
           <SearchableSelect
             options={[
-              { value: '', label: 'All Statuses' },
-              { value: 'ACTIVE', label: 'Active Account', badge: 'Active' },
-              { value: 'SUSPENDED', label: 'Suspended Account', badge: 'Suspended' },
-              { value: 'ARCHIVED', label: 'Archived / Graduated', badge: 'Archived' },
+              { value: 'name_asc', label: 'Name (A–Z)' },
+              { value: 'name_desc', label: 'Name (Z–A)' },
+              { value: 'roll_asc', label: 'Roll Number' },
+              { value: 'newest', label: 'Recently Added' },
             ]}
-            value={status}
-            onChange={(val) => { setStatus(val); setPage(0); }}
-            placeholder="All Statuses"
+            value={sort}
+            onChange={(val) => { setSort(val || 'name_asc'); setPage(0); }}
+            placeholder="Name (A–Z)"
             searchable={false}
             triggerStyle={{ height: '42px', borderRadius: '10px' }}
           />
@@ -729,20 +727,19 @@ function Directory() {
                 <th>Email</th>
                 <th>Campus ID / Roll No</th>
                 <th>Department / Academics</th>
-                <th>Status</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                  <td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
                     Loading directory records…
                   </td>
                 </tr>
               )}
               {!loading && users.length === 0 && (
                 <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
+                  <td colSpan="4" style={{ textAlign: 'center', padding: '32px', color: '#64748b' }}>
                     No campus identities match the current filters.
                   </td>
                 </tr>
@@ -751,7 +748,14 @@ function Directory() {
                 users.map((u) => (
                   <tr key={u.id} className="interactive-row" onClick={() => setSelectedUserId(u.id)}>
                     <td data-label="Name">
-                      <strong style={{ color: '#0f172a', fontWeight: 600 }}>{u.name}</strong>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <strong style={{ color: '#0f172a', fontWeight: 600 }}>{u.name}</strong>
+                        {u.status && u.status !== 'ACTIVE' && (
+                          <span className={`badge ${u.status === 'SUSPENDED' ? 'suspended' : 'archived'}`}>
+                            {u.status}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td data-label="Email" className="mono" style={{ color: '#1d4ed8', fontWeight: 500 }}>
                       <span>{u.email}</span>
@@ -789,11 +793,6 @@ function Directory() {
                           )}
                         </div>
                       )}
-                    </td>
-                    <td data-label="Status">
-                      <span className={`badge ${u.status === 'ACTIVE' ? 'active' : u.status === 'SUSPENDED' ? 'suspended' : 'archived'}`}>
-                        {u.status}
-                      </span>
                     </td>
                   </tr>
                 ))}
@@ -991,9 +990,11 @@ function UserSlideDrawer({ userId, onClose }) {
 
         <div className="drawer-content">
           <div className="drawer-section">
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <span className={`badge ${user.status === 'ACTIVE' ? 'active' : 'suspended'}`}>{user.status}</span>
-            </div>
+            {user.status && user.status !== 'ACTIVE' && (
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <span className={`badge ${user.status === 'SUSPENDED' ? 'suspended' : 'archived'}`}>{user.status}</span>
+              </div>
+            )}
 
             <div className="section-label">Academic &amp; Profile Attributes</div>
             <div className="meta-grid">

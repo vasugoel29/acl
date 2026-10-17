@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-acl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-acl}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-acl} -d $${POSTGRES_DB:-acl}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      INLINE_WORKER: "false"
+      DATABASE_URL: postgres://${POSTGRES_USER:-acl}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-acl}
+      REDIS_URL: redis://redis:6379
+      KEYS_FILE: /app/keys/signing.json
+    volumes:
+      - ./keys:/app/keys
+    ports:
+      - "127.0.0.1:4000:4000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "dist/src/jobs/worker.js"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-acl}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-acl}
+      REDIS_URL: redis://redis:6379
+      KEYS_FILE: /app/keys/signing.json
+    volumes:
+      - ./keys:/app/keys
+
+  console:
+    build:
+      context: ./admin-console
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${ISSUER:-https://id.nsut.ac.in}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:5173:80"
+
+volumes:
+  pgdata:
+  redisdata:

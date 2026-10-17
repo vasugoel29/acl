@@ -1,0 +1,35 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "admin-console/dist",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60,
+      "includeFiles": "migrations/*.sql"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/expiry-sweep",
+      "schedule": "0 0 * * *"
+    }
+  ],
+  "rewrites": [
+    { "source": "/authorize", "destination": "/api/index" },
+    { "source": "/token", "destination": "/api/index" },
+    { "source": "/userinfo", "destination": "/api/index" },
+    { "source": "/introspect", "destination": "/api/index" },
+    { "source": "/revoke", "destination": "/api/index" },
+    { "source": "/logout", "destination": "/api/index" },
+    { "source": "/acl-version/:path*", "destination": "/api/index" },
+    { "source": "/auth/:path*", "destination": "/api/index" },
+    { "source": "/.well-known/:path*", "destination": "/api/index" },
+    { "source": "/v1/:path*", "destination": "/api/index" },
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/livez", "destination": "/api/index" },
+    { "source": "/readyz", "destination": "/api/index" },
+    { "source": "/healthz", "destination": "/api/index" },
+    { "source": "/((?!assets/|favicon\\.svg).*)", "destination": "/index.html" }
+  ]
+}

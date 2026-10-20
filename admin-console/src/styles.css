@@ -3,7 +3,9 @@
 :root {
   --bg-primary: #f8fafc;
   --bg-secondary: #eef2f7;
+  --bg-subtle: #f1f5f9;
   --text-primary: #0f172a;
+  --text-heading: #111827;
   --text-secondary: #64748b;
   --text-tertiary: #94a3b8;
   --text-muted: #64748b;
@@ -15,10 +17,13 @@
   --card-bg: #ffffff;
   --card-border: #e5e7eb;
   --card-border-hover: #d1d5db;
+  --input-bg: #ffffff;
   --input-border: #d1d5db;
   --border-subtle: #e2e8f0;
   --divider: #e5e7eb;
   --surface-solid: #ffffff;
+  --surface-header: #fafbfc;
+  --surface-hover: #f8fafc;
 
   --shadow-soft: 0 4px 20px rgba(15, 23, 42, 0.05);
   --shadow-card: 0 4px 20px rgba(15, 23, 42, 0.05);
@@ -51,6 +56,65 @@
 
   --blue-primary: #2563eb;
   --blue-hover: #1d4ed8;
+
+  --body-gradient: radial-gradient(circle at 0 0, #ffffff 0%, #f8fafc 50%, #eef2f7 100%);
+  --topbar-bg: rgba(255, 255, 255, 0.92);
+  --login-btn-bg: #111827;
+  --login-btn-color: #ffffff;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #090d16;
+  --bg-secondary: #0f1523;
+  --bg-subtle: #141c2e;
+  --text-primary: #f1f5f9;
+  --text-heading: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-muted: #94a3b8;
+
+  --accent-primary: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-soft: rgba(59, 130, 246, 0.18);
+
+  --card-bg: #111827;
+  --card-border: #1f293d;
+  --card-border-hover: #334155;
+  --input-bg: #141c2c;
+  --input-border: #2b3952;
+  --border-subtle: #1e293b;
+  --divider: #1f293d;
+  --surface-solid: #151d2e;
+  --surface-header: #141c2d;
+  --surface-hover: #182236;
+
+  --shadow-soft: 0 4px 24px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --shadow-card-hover: 0 8px 30px rgba(0, 0, 0, 0.55);
+
+  --emerald: #34d399;
+  --emerald-bg: rgba(16, 185, 129, 0.14);
+  --emerald-border: rgba(16, 185, 129, 0.28);
+
+  --amber: #fbbf24;
+  --amber-bg: rgba(245, 158, 11, 0.14);
+  --amber-border: rgba(245, 158, 11, 0.28);
+
+  --rose: #f87171;
+  --rose-bg: rgba(239, 68, 68, 0.14);
+  --rose-border: rgba(239, 68, 68, 0.28);
+
+  --indigo: #818cf8;
+  --indigo-bg: rgba(99, 102, 241, 0.16);
+  --indigo-border: rgba(99, 102, 241, 0.28);
+
+  --blue-primary: #3b82f6;
+  --blue-hover: #60a5fa;
+
+  --body-gradient: radial-gradient(circle at 0 0, #141c2e 0%, #090d16 60%, #060910 100%);
+  --topbar-bg: rgba(15, 21, 35, 0.88);
+  --login-btn-bg: #2563eb;
+  --login-btn-color: #ffffff;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -62,17 +126,18 @@ html, body {
 
 body {
   font-family: var(--font-sans);
-  background: radial-gradient(circle at 0 0, #ffffff 0%, #f8fafc 50%, #eef2f7 100%);
+  background: var(--body-gradient);
   color: var(--text-primary);
   min-block-size: 100dvh;
   -webkit-font-smoothing: antialiased;
   line-height: 1.6;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 /* Editorial Typography */
 h1 {
   font-family: var(--font-serif);
-  color: #111827;
+  color: var(--text-heading);
   font-size: clamp(1.65rem, 1.25rem + 2vw, 2.65rem);
   font-weight: 700;
   line-height: 1.15;
@@ -82,14 +147,14 @@ h1 {
 
 h2 {
   font-family: var(--font-serif);
-  color: #111827;
+  color: var(--text-heading);
   font-size: clamp(1.2rem, 1rem + 0.8vw, 1.5rem);
   font-weight: 700;
 }
 
 h3 {
   font-family: var(--font-serif);
-  color: #111827;
+  color: var(--text-heading);
   font-size: clamp(1.05rem, 0.95rem + 0.4vw, 1.25rem);
   font-weight: 700;
 }
@@ -114,19 +179,21 @@ code, .mono {
   display: grid;
   place-items: safe center;
   min-block-size: 100dvh;
-  background: radial-gradient(circle at 0 0, #ffffff 0%, #f8fafc 50%, #eef2f7 100%);
+  background: var(--body-gradient);
   padding: clamp(16px, 4vw, 24px);
+  position: relative;
 }
 
 .login-gateway-card {
   width: 100%;
   max-width: 460px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 24px;
   padding: clamp(28px, 6vw, 48px) clamp(20px, 5vw, 40px);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-card);
   text-align: center;
+  position: relative;
 }
 
 /* Main Shell */
@@ -139,7 +206,7 @@ code, .mono {
 
 /* Sidebar */
 .sidebar {
-  background: #ffffff;
+  background: var(--card-bg);
   border-right: 1px solid var(--card-border);
   display: flex;
   flex-direction: column;
@@ -147,8 +214,9 @@ code, .mono {
   top: 0;
   height: 100dvh;
   padding: 24px 18px;
-  box-shadow: 2px 0 16px rgba(15, 23, 42, 0.02);
+  box-shadow: var(--shadow-soft);
   z-index: 30;
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 .sidebar-top-row {

@@ -125,13 +125,19 @@ export interface ResolvedForApp extends EffectiveAccess {
 }
 
 export async function resolveForApp(userId: string, appId: string, db: Queryable = pool): Promise<ResolvedForApp> {
+  let targetAppId = appId;
+  if (!appId.startsWith('app_')) {
+    const row = (await db.query(`SELECT id FROM applications WHERE client_id = $1`, [appId])).rows[0];
+    if (row) targetAppId = row.id;
+  }
+
   const grantRows = await db.query<{ role: string; scope: Scope; permissions: string[] }>(
     `SELECT uar.role, uar.scope, ar.permissions
      FROM user_app_roles uar
      JOIN app_roles ar ON ar.app_id = uar.app_id AND ar.role = uar.role
-     WHERE uar.user_id = $1 AND uar.app_id = $2
+     WHERE uar.user_id = $1 AND (uar.app_id = $2 OR uar.app_id = $3)
        AND (uar.expires_at IS NULL OR uar.expires_at > now())`,
-    [userId, appId],
+    [userId, targetAppId, appId],
   );
 
   const rolePermissions: Record<string, string[]> = {};
@@ -145,7 +151,7 @@ export async function resolveForApp(userId: string, appId: string, db: Queryable
   if (grants.length === 0) {
     const defaults = await db.query<{ role: string; permissions: string[]; default_scope: Record<string, string> }>(
       `SELECT role, permissions, default_scope FROM app_roles WHERE app_id = $1 AND is_default = true`,
-      [appId],
+      [targetAppId],
     );
     if (defaults.rows.length) {
       const u = (await db.query(`SELECT * FROM users WHERE id = $1`, [userId])).rows[0];

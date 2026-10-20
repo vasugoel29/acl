@@ -13,6 +13,7 @@ interface RoleDef {
 }
 interface AppDef {
   id: string;
+  clientId: string;
   name: string;
   redirectUris: string[];
   roles: Record<string, RoleDef>;
@@ -22,6 +23,7 @@ interface AppDef {
 export const CATALOG: AppDef[] = [
   {
     id: config.internalAppId,
+    clientId: config.internalClientSlug,
     name: 'Identity & ACL Admin Console',
     redirectUris: Array.from(new Set(['http://localhost:5173/callback', `${config.consoleUrl}/callback`])),
     roles: {
@@ -34,7 +36,8 @@ export const CATALOG: AppDef[] = [
     },
   },
   {
-    id: 'CRAS',
+    id: 'app_01JCRAS0000000000000000000',
+    clientId: 'CRAS',
     name: 'Campus Room Allocation System',
     redirectUris: ['http://localhost:3001/callback'],
     roles: {
@@ -50,14 +53,16 @@ export async function seed() {
   await tx(async (c) => {
     for (const app of CATALOG) {
       const res = await c.query(
-        `INSERT INTO applications (id,name,redirect_uris) VALUES ($1,$2,$3)
+        `INSERT INTO applications (id,client_id,name,redirect_uris) VALUES ($1,$2,$3,$4)
          ON CONFLICT (id) DO UPDATE SET
+           client_id = EXCLUDED.client_id,
+           name = EXCLUDED.name,
            redirect_uris = CASE
-             WHEN applications.id = $4 THEN ARRAY(SELECT DISTINCT unnest(applications.redirect_uris || EXCLUDED.redirect_uris))
+             WHEN applications.id = $5 THEN ARRAY(SELECT DISTINCT unnest(applications.redirect_uris || EXCLUDED.redirect_uris))
              ELSE applications.redirect_uris
            END
          RETURNING (xmax = 0) AS is_new`,
-        [app.id, app.name, app.redirectUris, config.internalAppId],
+        [app.id, app.clientId, app.name, app.redirectUris, config.internalAppId],
       );
       const isNew = res.rows[0]?.is_new ?? false;
       // Seed or update roles with permissions directly in app_roles

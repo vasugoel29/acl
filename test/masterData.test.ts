@@ -104,7 +104,10 @@ describe('Master Reference Data APIs', () => {
 
   it('verifies app_resources table exists and contains seeded permissions', async () => {
     const res = await pool.query(
-      `SELECT count(*)::int AS count FROM app_resources WHERE app_id = 'CRAS'`,
+      `SELECT count(*)::int AS count 
+       FROM app_resources 
+       WHERE app_id = 'app_01JCRAS0000000000000000000' 
+          OR app_id IN (SELECT id FROM applications WHERE client_id = 'CRAS')`,
     );
     expect(res.rows[0].count).toBeGreaterThan(0);
   });

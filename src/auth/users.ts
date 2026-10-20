@@ -58,6 +58,13 @@ export function looksLikeRollNo(local: string) {
   return ROLL_RE.test(local);
 }
 
-export async function appById(id: string, db: Queryable = pool) {
-  return (await db.query(`SELECT * FROM applications WHERE id=$1 AND status='ACTIVE'`, [id])).rows[0] ?? null;
+export async function appById(idOrClientId: string, db: Queryable = pool) {
+  return (
+    (
+      await db.query(
+        `SELECT * FROM applications WHERE (id = $1 OR client_id = $1) AND status = 'ACTIVE'`,
+        [idOrClientId],
+      )
+    ).rows[0] ?? null
+  );
 }

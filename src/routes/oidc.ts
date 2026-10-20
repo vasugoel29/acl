@@ -171,10 +171,11 @@ export async function oidcRoutes(app: FastifyInstance) {
 
       const user = await getUser(row.user_id);
       if (!user || user.status !== 'ACTIVE') return oauthError(reply, 400, 'invalid_grant');
+      const clientSlug = client.app.client_id;
       const [at, session, idt] = await Promise.all([
-        issueAccessToken(user, appId),
+        issueAccessToken(user, appId, clientSlug),
         createSession({ userId: user.id, appId, userAgent: req.headers['user-agent'], ip: req.ip }),
-        issueIdToken(user, appId, row.nonce),
+        issueIdToken(user, appId, row.nonce, clientSlug),
       ]);
       if (appId === config.internalAppId) {
         reply.setCookie('acl_admin_session', at.token, {
@@ -258,7 +259,10 @@ export async function oidcRoutes(app: FastifyInstance) {
     const client = await authenticateClient(req, b.client_id, b.client_secret);
     if (!client || !client.authenticated) return oauthError(reply, 401, 'invalid_client');
     try {
-      const claims = await verifyJwt(b.token, client.app.id); // audience-bound to the caller
+      const expectedAud = client.app.client_id && client.app.client_id !== client.app.id
+        ? [client.app.id, client.app.client_id]
+        : client.app.id;
+      const claims = await verifyJwt(b.token, expectedAud); // audience-bound to the caller
       if (claims.token_use === 'id') return { active: false };
       const [jtiDenied, userRevokedAtStr] = await Promise.all([
         redis.exists(keys.denyJti(String(claims.jti))),
@@ -286,7 +290,10 @@ export async function oidcRoutes(app: FastifyInstance) {
     if (b.token) {
       await revokeRefresh(b.token);
       try {
-        const c = await verifyJwt(b.token, client.app.id);
+        const expectedAud = client.app.client_id && client.app.client_id !== client.app.id
+          ? [client.app.id, client.app.client_id]
+          : client.app.id;
+        const c = await verifyJwt(b.token, expectedAud);
         if (c.jti && c.exp) await denyJti(String(c.jti), c.exp - Math.floor(Date.now() / 1000));
       } catch {
         /* not a JWT: refresh path handled above */

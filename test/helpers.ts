@@ -45,7 +45,15 @@ export async function login(app: FastifyInstance, opts: { email: string; appId: 
 }
 
 export const redirectFor = (appId: string) =>
-  ({ ACL: 'http://localhost:5173/callback', CRAS: 'http://localhost:3001/callback', HAJIRI: 'http://localhost:3002/callback', EVENTS: 'http://localhost:3003/callback' } as Record<string, string>)[appId];
+  ({
+    ACL: 'http://localhost:5173/callback',
+    app_01JACL00000000000000000000: 'http://localhost:5173/callback',
+    CRAS: 'http://localhost:3001/callback',
+    app_01JCRAS0000000000000000000: 'http://localhost:3001/callback',
+    HAJIRI: 'http://localhost:3002/callback',
+    app_01JHAJIRI00000000000000000: 'http://localhost:3002/callback',
+    EVENTS: 'http://localhost:3003/callback',
+  } as Record<string, string>)[appId];
 
 export const exchange = (app: FastifyInstance, o: { appId: string; code: string; verifier: string; redirectUri: string }) =>
   app.inject({

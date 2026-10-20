@@ -96,7 +96,7 @@ export async function jwks() {
   return { keys: stored.map((k) => k.public) };
 }
 
-export async function signJwt(claims: Record<string, unknown>, opts: { aud: string; sub: string; ttlSec: number; jti?: string }) {
+export async function signJwt(claims: Record<string, unknown>, opts: { aud: string | string[]; sub: string; ttlSec: number; jti?: string }) {
   const { signing } = await load();
   return new SignJWT(claims)
     .setProtectedHeader({ alg: ALG, kid: signing.kid, typ: 'JWT' })
@@ -109,7 +109,7 @@ export async function signJwt(claims: Record<string, unknown>, opts: { aud: stri
     .sign(signing.key);
 }
 
-export async function verifyJwt(token: string, aud?: string) {
+export async function verifyJwt(token: string, aud?: string | string[]) {
   let { stored } = await load();
   // Verify against any published key (matched by kid).
   const header = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString());
@@ -120,7 +120,15 @@ export async function verifyJwt(token: string, aud?: string) {
   }
   if (!k) throw new Error('unknown kid');
   const key = await importJWK(k.public, ALG);
-  const { payload } = await jwtVerify(token, key, { issuer: config.issuer, audience: aud, algorithms: [ALG] });
+  let expectedAudience = aud;
+  if (aud === config.internalAppId || aud === config.internalClientSlug) {
+    expectedAudience = [config.internalAppId, config.internalClientSlug];
+  }
+  const { payload } = await jwtVerify(token, key, {
+    issuer: config.issuer,
+    ...(expectedAudience !== undefined ? { audience: expectedAudience } : {}),
+    algorithms: [ALG],
+  });
   return payload;
 }
 

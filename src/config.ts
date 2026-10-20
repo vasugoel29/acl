@@ -55,7 +55,8 @@ export const config = {
   signingKeysJson: env.SIGNING_KEYS_JSON,
   cronSecret: env.CRON_SECRET,
   bootstrapAdminEmail: env.BOOTSTRAP_ADMIN_EMAIL,
-  internalAppId: 'ACL',
+  internalAppId: env.INTERNAL_APP_ID ?? 'app_01JACL00000000000000000000',
+  internalClientSlug: 'ACL',
   enableRateLimit: env.ENABLE_RATE_LIMIT !== 'false' && env.RATE_LIMIT_DISABLED !== 'true',
   rateLimitMax: Number(env.RATE_LIMIT_MAX ?? 5000),
 };

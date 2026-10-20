@@ -43,6 +43,14 @@ export class HttpError extends Error {
   }
 }
 
+async function resolveAppId(rawIdOrSlug: string): Promise<string> {
+  if (rawIdOrSlug === config.internalClientSlug || rawIdOrSlug === config.internalAppId) {
+    return config.internalAppId;
+  }
+  const row = (await pool.query(`SELECT id FROM applications WHERE id = $1 OR client_id = $1`, [rawIdOrSlug])).rows[0];
+  return row ? row.id : rawIdOrSlug;
+}
+
 const ALLOWED_USER_UPDATE_COLUMNS = new Set([
   'name',
   'status',
@@ -121,7 +129,18 @@ async function adminAuth(req: FastifyRequest) {
 }
 
 function need(req: FastifyRequest, permission: string, resource: Record<string, string> = {}) {
-  if (!req.admin || !checkPermission(req.admin.access, permission, resource)) throw new HttpError(403, `missing permission ${permission}`);
+  if (!req.admin) throw new HttpError(403, `missing permission ${permission}`);
+  if (checkPermission(req.admin.access, permission, resource)) return;
+  if (resource.app) {
+    const alts = req.admin.access.scopes_by_permission[permission] ?? [];
+    for (const alt of alts) {
+      if (alt.app) {
+        const allowed = Array.isArray(alt.app) ? alt.app.map(String) : [String(alt.app)];
+        if (allowed.includes(resource.app) || (resource.raw_app && allowed.includes(resource.raw_app))) return;
+      }
+    }
+  }
+  throw new HttpError(403, `missing permission ${permission}`);
 }
 
 /** Does the caller hold full PII access (unrestricted write/import/super-admin) as opposed to scoped APP_ADMIN? */
@@ -181,11 +200,11 @@ export async function adminRoutes(app: FastifyInstance) {
       permission: z.string(),
       scope: z.record(z.string(), z.union([z.string(), z.number()])).default({}),
     }).parse(req.body);
-    const client = (await pool.query(`SELECT * FROM applications WHERE id=$1 AND status='ACTIVE'`, [b.client_id])).rows[0];
+    const client = (await pool.query(`SELECT * FROM applications WHERE (id=$1 OR client_id=$1) AND status='ACTIVE'`, [b.client_id])).rows[0];
     if (!client?.client_secret_hash || !safeCompareHex(sha256(b.client_secret), client.client_secret_hash)) {
       return reply.code(401).send({ error: 'invalid_client' });
     }
-    if (b.app !== client.id) return reply.code(403).send({ error: 'apps may only check their own permissions' });
+    if (b.app !== client.id && b.app !== client.client_id) return reply.code(403).send({ error: 'apps may only check their own permissions' });
     const user = await getUser(b.user);
     if (!user || user.status !== 'ACTIVE') return { allowed: false, reason: 'inactive_user' };
     const access = await resolveForApp(user.id, b.app);
@@ -219,14 +238,14 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'invalid_client', error_description: 'client_id and client_secret required' });
     }
 
-    const targetApp = b.app ?? clientId;
-    if (targetApp !== clientId) {
-      return reply.code(403).send({ error: 'forbidden', error_description: 'apps may only query their own user access' });
-    }
-
-    const client = (await pool.query(`SELECT * FROM applications WHERE id=$1 AND status='ACTIVE'`, [clientId])).rows[0];
+    const client = (await pool.query(`SELECT * FROM applications WHERE (id=$1 OR client_id=$1) AND status='ACTIVE'`, [clientId])).rows[0];
     if (!client?.client_secret_hash || !safeCompareHex(sha256(clientSecret), client.client_secret_hash)) {
       return reply.code(401).send({ error: 'invalid_client', error_description: 'invalid client credentials' });
+    }
+
+    const targetApp = b.app ?? clientId;
+    if (targetApp !== clientId && targetApp !== client.id && targetApp !== client.client_id) {
+      return reply.code(403).send({ error: 'forbidden', error_description: 'apps may only query their own user access' });
     }
 
     if (!b.email && !b.user_id) {
@@ -837,14 +856,14 @@ export async function adminRoutes(app: FastifyInstance) {
     admin.get('/v1/apps', async (req) => {
       need(req, 'users:read');
       const r = await pool.query(
-        `SELECT a.id,a.name,a.redirect_uris,a.status,a.created_at,
+        `SELECT a.id,a.client_id,a.name,a.redirect_uris,a.status,a.created_at,
                 (a.client_secret_hash IS NOT NULL) AS confidential,
                 COALESCE((SELECT json_agg(json_build_object('role',r.role,'is_default',r.is_default,'description',r.description,
                    'permissions',COALESCE(r.permissions, '{}')))
                    FROM app_roles r WHERE r.app_id=a.id),'[]') AS roles,
                 COALESCE((SELECT json_agg(p.permission ORDER BY p.permission) FROM app_resources p WHERE p.app_id=a.id),'[]') AS permissions
            FROM applications a
-          ORDER BY a.id`,
+          ORDER BY a.client_id, a.id`,
       );
       return { apps: r.rows };
     });
@@ -852,12 +871,17 @@ export async function adminRoutes(app: FastifyInstance) {
     admin.post('/v1/apps', async (req, reply) => {
       need(req, 'apps:manage');
       const b = z.object({
-        id: z.string().regex(/^[A-Z][A-Z0-9_]{1,31}$/),
+        id: z.string().optional(),
+        client_id: z.string().regex(/^[A-Za-z0-9_]{1,32}$/).optional(),
         name: z.string().min(1),
         redirect_uris: z.array(z.string().url()).min(1),
         confidential: z.boolean().default(false),
       }).parse(req.body);
-      if (b.id === config.internalAppId) throw new HttpError(400, 'Reserved application ID');
+      const clientId = (b.client_id ?? b.id ?? '').toUpperCase();
+      if (!clientId) throw new HttpError(400, 'client_id is required');
+      if (clientId === config.internalClientSlug || clientId === config.internalAppId) {
+        throw new HttpError(400, 'Reserved application ID');
+      }
       for (const u of b.redirect_uris) {
         if (u.includes('*') || u.includes('#')) {
           throw new HttpError(400, 'redirect URIs must be exact (no wildcards/fragments)');
@@ -870,17 +894,21 @@ export async function adminRoutes(app: FastifyInstance) {
           throw new HttpError(400, 'redirect URIs must use https in production');
         }
       }
+      const appId = b.id?.startsWith('app_') ? b.id : newId('app');
       const secret = b.confidential ? randomToken(32) : null;
-      await pool.query(`INSERT INTO applications (id,name,client_secret_hash,redirect_uris) VALUES ($1,$2,$3,$4)`,
-        [b.id, b.name, secret ? sha256(secret) : null, b.redirect_uris]);
-      await audit({ actorId: req.admin!.userId, action: 'APP_REGISTERED', targetType: 'app', targetId: b.id, appId: b.id, ip: req.ip });
+      await pool.query(
+        `INSERT INTO applications (id,client_id,name,client_secret_hash,redirect_uris) VALUES ($1,$2,$3,$4,$5)`,
+        [appId, clientId, b.name, secret ? sha256(secret) : null, b.redirect_uris],
+      );
+      await audit({ actorId: req.admin!.userId, action: 'APP_REGISTERED', targetType: 'app', targetId: appId, appId, ip: req.ip });
       // Secret is shown exactly once.
-      return reply.code(201).send({ client_id: b.id, ...(secret ? { client_secret: secret } : {}) });
+      return reply.code(201).send({ id: appId, client_id: clientId, ...(secret ? { client_secret: secret } : {}) });
     });
 
     admin.delete('/v1/apps/:app', async (req, reply) => {
-      const { app: appId } = req.params as { app: string };
+      const { app: rawApp } = req.params as { app: string };
       need(req, 'apps:manage');
+      const appId = await resolveAppId(rawApp);
       if (appId === config.internalAppId) {
         throw new HttpError(400, 'Cannot delete the internal system identity application');
       }
@@ -902,8 +930,9 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     admin.put('/v1/apps/:app/permissions', async (req, reply) => {
-      const { app: appId } = req.params as { app: string };
+      const { app: rawApp } = req.params as { app: string };
       need(req, 'apps:manage');
+      const appId = await resolveAppId(rawApp);
       if (appId === config.internalAppId) need(req, 'admin:all');
       const b = z.object({ permissions: z.array(z.object({ permission: z.string().regex(/^[a-z_]+:[a-z_]+$/), description: z.string().optional() })) }).parse(req.body);
       await tx(async (c) => {
@@ -917,8 +946,9 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     admin.put('/v1/apps/:app/roles', async (req, reply) => {
-      const { app: appId } = req.params as { app: string };
+      const { app: rawApp } = req.params as { app: string };
       need(req, 'apps:manage');
+      const appId = await resolveAppId(rawApp);
       if (appId === config.internalAppId) need(req, 'admin:all');
       const b = z.object({ roles: z.array(z.object({
         role: z.string().regex(/^[A-Z][A-Z0-9_]*$/), description: z.string().optional(),
@@ -967,6 +997,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const r = await pool.query(
         `SELECT p.app_id,
                 a.name AS app_name,
+                a.client_id,
                 p.permission,
                 p.description,
                 COALESCE((
@@ -977,7 +1008,7 @@ export async function adminRoutes(app: FastifyInstance) {
          FROM app_resources p
          JOIN applications a ON a.id = p.app_id
          WHERE ($1::boolean = true OR p.app_id != $2)
-         ORDER BY p.app_id, p.permission`,
+         ORDER BY a.client_id, p.permission`,
         [includeInternal, config.internalAppId],
       );
       return { resources: r.rows };
@@ -991,7 +1022,8 @@ export async function adminRoutes(app: FastifyInstance) {
         description: z.string().optional(),
       }).parse(req.body);
 
-      const app = (await pool.query(`SELECT id FROM applications WHERE id=$1`, [b.app_id])).rows[0];
+      const appId = await resolveAppId(b.app_id);
+      const app = (await pool.query(`SELECT id FROM applications WHERE id=$1`, [appId])).rows[0];
       if (!app) return reply.code(404).send({ error: 'app_not_found' });
 
       await tx(async (c) => {
@@ -999,14 +1031,14 @@ export async function adminRoutes(app: FastifyInstance) {
           `INSERT INTO app_resources (app_id, permission, description)
            VALUES ($1, $2, $3)
            ON CONFLICT (app_id, permission) DO UPDATE SET description = EXCLUDED.description`,
-          [b.app_id, b.permission, b.description ?? null],
+          [appId, b.permission, b.description ?? null],
         );
         await audit({
           actorId: req.admin!.userId,
           action: 'RESOURCE_CREATED',
           targetType: 'resource',
-          targetId: `${b.app_id}:${b.permission}`,
-          appId: b.app_id,
+          targetId: `${appId}:${b.permission}`,
+          appId,
           ip: req.ip,
           metadata: { permission: b.permission, description: b.description },
         }, c);
@@ -1016,8 +1048,9 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     admin.delete('/v1/resources/:app/:permission', async (req, reply) => {
-      const { app: appId, permission } = req.params as { app: string; permission: string };
+      const { app: rawApp, permission } = req.params as { app: string; permission: string };
       need(req, 'apps:manage');
+      const appId = await resolveAppId(rawApp);
       const removed = await tx(async (c) => {
         const r = await c.query(
           `DELETE FROM app_resources WHERE app_id = $1 AND permission = $2 RETURNING permission`,
@@ -1041,8 +1074,9 @@ export async function adminRoutes(app: FastifyInstance) {
 
     // ---------------- ACL assignment ----------------
     admin.post('/v1/users/:id/apps/:app/roles', async (req, reply) => {
-      const { id, app: appId } = req.params as { id: string; app: string };
-      need(req, 'roles:assign', { app: appId });
+      const { id, app: rawApp } = req.params as { id: string; app: string };
+      const appId = await resolveAppId(rawApp);
+      need(req, 'roles:assign', { app: appId, raw_app: rawApp });
       const b = z.object({ role: z.string(), scope: scopeSchema, expires_at: z.string().datetime().nullish() }).parse(req.body);
       // Only super admins may grant roles of the internal ACL app (prevents escalation).
       if (appId === config.internalAppId) need(req, 'admin:all');
@@ -1060,8 +1094,9 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     admin.delete('/v1/users/:id/apps/:app/roles/:assignmentId', async (req, reply) => {
-      const { id, app: appId, assignmentId } = req.params as { id: string; app: string; assignmentId: string };
-      need(req, 'roles:assign', { app: appId });
+      const { id, app: rawApp, assignmentId } = req.params as { id: string; app: string; assignmentId: string };
+      const appId = await resolveAppId(rawApp);
+      need(req, 'roles:assign', { app: appId, raw_app: rawApp });
       if (appId === config.internalAppId) need(req, 'admin:all');
       const removed = await tx(async (c) => {
         if (appId === config.internalAppId) {
@@ -1098,12 +1133,12 @@ export async function adminRoutes(app: FastifyInstance) {
       if (id !== req.admin!.userId) need(req, 'users:read');
       const user = await getUser(id);
       if (!user) return reply.code(404).send({ error: 'not_found' });
-      const apps = (await pool.query(`SELECT id,name FROM applications WHERE status='ACTIVE' ORDER BY id`)).rows;
+      const apps = (await pool.query(`SELECT id,client_id,name FROM applications WHERE status='ACTIVE' ORDER BY id`)).rows;
       const assignments = (await pool.query(`SELECT id,app_id,role,scope,granted_by,granted_at,expires_at FROM user_app_roles WHERE user_id=$1`, [id])).rows;
       const out = [];
       for (const a of apps) {
         const eff = await resolveForApp(id, a.id);
-        out.push({ app: a.id, name: a.name, role: eff.role, roles: eff.roles, permissions: eff.permissions, scope: eff.scope,
+        out.push({ app: a.client_id || a.id, app_id: a.id, name: a.name, role: eff.role, roles: eff.roles, permissions: eff.permissions, scope: eff.scope,
           implicit_default: eff.implicitDefault, assignments: assignments.filter((x) => x.app_id === a.id) });
       }
       return { user: { id: user.id, email: user.email, name: user.name, status: user.status }, access: out };
@@ -1118,15 +1153,25 @@ export async function adminRoutes(app: FastifyInstance) {
         limit: z.coerce.number().int().min(1).max(500).default(100) }).parse(req.query);
       const apps = allowedApps(req.admin!.access, 'audit:view');
       const r = await pool.query(
-        `SELECT a.*,
+        `SELECT a.id,
+                a.actor_id,
+                a.action,
+                a.target_type,
+                a.target_id,
+                COALESCE(app.client_id, a.app_id) AS app_id,
+                a.metadata,
+                a.ip,
+                a.created_at,
                 u_actor.email AS actor_email, u_actor.name AS actor_name,
                 u_target.email AS target_email, u_target.name AS target_name
           FROM audit_logs a
+          LEFT JOIN applications app ON app.id = a.app_id
           LEFT JOIN users u_actor ON a.actor_id = u_actor.id
           LEFT JOIN users u_target ON a.target_id = u_target.id
-          WHERE ($1::text IS NULL OR a.actor_id=$1) AND ($2::text IS NULL OR a.target_id=$2) AND ($3::text IS NULL OR a.app_id=$3)
+          WHERE ($1::text IS NULL OR a.actor_id=$1) AND ($2::text IS NULL OR a.target_id=$2)
+            AND ($3::text IS NULL OR a.app_id=$3 OR app.client_id=$3)
             AND ($4::text IS NULL OR a.action=$4) AND ($5::timestamptz IS NULL OR a.created_at>=$5) AND ($6::timestamptz IS NULL OR a.created_at<=$6)
-            AND ($7::text[] IS NULL OR a.app_id = ANY($7))
+            AND ($7::text[] IS NULL OR a.app_id = ANY($7) OR app.client_id = ANY($7))
           ORDER BY a.created_at DESC, a.id DESC LIMIT $8`,
         [q.actor ?? null, q.target ?? null, q.app ?? null, q.action ?? null, q.from ?? null, q.to ?? null, apps, q.limit],
       );

@@ -97,10 +97,16 @@ export async function academicOf(userId: string, includeSensitivePii = true) {
 
 /** Standard response contract (spec §2.4). */
 export async function buildUserInfo(user: UserRow, appId: string) {
+  let displayApp = appId;
+  if (appId.startsWith('app_')) {
+    const row = (await pool.query(`SELECT client_id FROM applications WHERE id = $1`, [appId])).rows[0];
+    if (row?.client_id) displayApp = row.client_id;
+  }
   const [access, academic] = await Promise.all([resolveForApp(user.id, appId), academicOf(user.id)]);
   return {
     user: { id: user.id, name: user.name, email: user.email, ...(academic ? { academic } : {}) },
-    app: appId,
+    app: displayApp,
+    app_id: appId,
     role: access.role,
     roles: access.roles,
     permissions: access.permissions,
@@ -109,9 +115,10 @@ export async function buildUserInfo(user: UserRow, appId: string) {
   };
 }
 
-export async function issueAccessToken(user: UserRow, appId: string) {
+export async function issueAccessToken(user: UserRow, appId: string, clientSlug?: string) {
   const access = await resolveForApp(user.id, appId);
   const ver = user.acl_version ?? 1;
+  const aud = clientSlug ?? appId;
   const token = await signJwt(
     {
       token_use: 'access',
@@ -120,17 +127,20 @@ export async function issueAccessToken(user: UserRow, appId: string) {
       roles: access.roles,
       permissions: access.permissions,
       scope: access.scope,
+      app_id: appId,
+      client_id: clientSlug ?? appId,
       ver,
     },
-    { aud: appId, sub: user.id, ttlSec: config.accessTokenTtlSec },
+    { aud, sub: user.id, ttlSec: config.accessTokenTtlSec },
   );
   return { token, expiresIn: config.accessTokenTtlSec };
 }
 
-export async function issueIdToken(user: UserRow, appId: string, nonce?: string | null) {
+export async function issueIdToken(user: UserRow, appId: string, nonce?: string | null, clientSlug?: string) {
+  const aud = clientSlug ?? appId;
   return signJwt(
     { token_use: 'id', name: user.name, email: user.email, email_verified: true, ...(nonce ? { nonce } : {}) },
-    { aud: appId, sub: user.id, ttlSec: 600 },
+    { aud, sub: user.id, ttlSec: 600 },
   );
 }
 

@@ -17,7 +17,51 @@ import {
   IconChevronDown,
   IconCheck,
   IconDatabase,
+  IconSun,
+  IconMoon,
 } from './icons.jsx';
+
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    try {
+      const stored = localStorage.getItem('acl_theme');
+      if (stored === 'dark' || stored === 'light') return stored;
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+      }
+    } catch (_) {}
+    return 'light';
+  });
+
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('acl_theme', theme);
+    } catch (_) {}
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
+
+  return { theme, toggleTheme };
+}
+
+function ThemeToggle({ theme, onToggle, style = {} }) {
+  const isDark = theme === 'dark';
+  return (
+    <button
+      type="button"
+      className="theme-toggle-btn"
+      onClick={onToggle}
+      title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+      style={style}
+    >
+      {isDark ? <IconSun size={17} /> : <IconMoon size={17} />}
+    </button>
+  );
+}
 
 function useDebounce(value, delay = 300) {
   const [debounced, setDebounced] = useState(value);
@@ -116,13 +160,13 @@ function SearchableSelect({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
           {selectedOpt ? (
             <>
-              <span style={{ fontWeight: 500, color: '#0f172a' }}>{selectedOpt.label}</span>
+              <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{selectedOpt.label}</span>
               {selectedOpt.badge && (
                 <span className="badge muted sm" style={{ fontSize: '10px', padding: '1px 6px' }}>{selectedOpt.badge}</span>
               )}
             </>
           ) : (
-            <span style={{ color: '#94a3b8' }}>{placeholder}</span>
+            <span style={{ color: 'var(--text-tertiary)' }}>{placeholder}</span>
           )}
         </div>
         <div style={{
@@ -299,6 +343,7 @@ function getInitials(name, email) {
 }
 
 export default function App() {
+  const { theme, toggleTheme } = useTheme();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -351,22 +396,22 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100dvh', background: 'radial-gradient(circle at 0 0, #ffffff 0%, #f8fafc 50%, #eef2f7 100%)', color: '#0f172a', padding: '20px' }}>
+      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100dvh', background: 'var(--body-gradient)', color: 'var(--text-primary)', padding: '20px' }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ width: '68px', height: '68px', margin: '0 auto 16px', background: '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', border: '1px solid #e2e8f0', boxShadow: '0 6px 20px rgba(15, 23, 42, 0.08)' }}>
+          <div style={{ width: '68px', height: '68px', margin: '0 auto 16px', background: 'var(--surface-solid)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-card)' }}>
             <img src="/nsut-logo.png" alt="NSUT Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
-          <div style={{ fontSize: '15px', fontFamily: 'var(--font-serif)', fontWeight: 700, marginBottom: '6px', color: '#111827' }}>
+          <div style={{ fontSize: '15px', fontFamily: 'var(--font-serif)', fontWeight: 700, marginBottom: '6px', color: 'var(--text-heading)' }}>
             Authenticating Session
           </div>
-          <div style={{ fontSize: '13px', color: '#64748b' }}>Connecting to NSUT Central Identity Provider…</div>
+          <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Connecting to NSUT Central Identity Provider…</div>
         </div>
       </div>
     );
   }
 
   if (!session) {
-    return <EnterpriseLoginGateway error={errorBanner} />;
+    return <EnterpriseLoginGateway error={errorBanner} theme={theme} onToggleTheme={toggleTheme} />;
   }
 
   const userInitials = getInitials(session.user.name, session.user.email);
@@ -387,10 +432,11 @@ export default function App() {
           </div>
 
           <div className="mobile-header-actions">
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <div className="user-avatar-circle" title={`${session.user.name} (${session.user.email})`}>
               {userInitials}
             </div>
-            <button className="btn-signout" title="Sign Out" onClick={logout} style={{ border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+            <button className="btn-signout" title="Sign Out" onClick={logout}>
               <IconLogout size={16} />
             </button>
           </div>
@@ -511,12 +557,13 @@ export default function App() {
           </div>
           <div className="top-bar-right">
             <span className="mono top-bar-email">{session.user.email}</span>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </header>
 
         <main className="content-container">
           {errorBanner && (
-            <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#b91c1c', marginBottom: '20px', fontSize: '13px' }}>
+            <div style={{ padding: '12px 16px', background: 'var(--rose-bg)', border: '1px solid var(--rose-border)', borderRadius: '8px', color: 'var(--rose)', marginBottom: '20px', fontSize: '13px' }}>
               {errorBanner}
             </div>
           )}
@@ -604,32 +651,35 @@ export default function App() {
 }
 
 /* ================= 1. Enterprise Login Gateway ================= */
-function EnterpriseLoginGateway({ error }) {
+function EnterpriseLoginGateway({ error, theme, onToggleTheme }) {
   return (
     <div className="login-gateway-shell">
+      <div style={{ position: 'absolute', top: '24px', right: '28px', zIndex: 10 }}>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      </div>
       <div className="login-gateway-card">
-        <div style={{ width: '84px', height: '84px', margin: '0 auto 20px', background: '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', border: '1px solid #e2e8f0', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' }}>
+        <div style={{ width: '84px', height: '84px', margin: '0 auto 20px', background: 'var(--surface-solid)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px', border: '1px solid var(--border-subtle)', boxShadow: 'var(--shadow-card)' }}>
           <img src="/nsut-logo.png" alt="NSUT Official Seal" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
-        <h1 style={{ fontSize: 'clamp(24px, 5vw, 28px)', fontWeight: 700, color: '#111827', marginBottom: '8px', lineHeight: 1.15 }}>
+        <h1 style={{ fontSize: 'clamp(24px, 5vw, 28px)', fontWeight: 700, color: 'var(--text-heading)', marginBottom: '8px', lineHeight: 1.15 }}>
           NSUT Identity
         </h1>
-        <p style={{ fontSize: '13.5px', color: '#64748b', marginBottom: '28px' }}>
+        <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', marginBottom: '28px' }}>
           Central Identity &amp; Access Management (IAM) Portal
         </p>
 
         {error && (
-          <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '12px', color: '#b91c1c', fontSize: '13px', marginBottom: '22px', textAlign: 'left', fontWeight: 500, lineHeight: 1.5 }}>
+          <div style={{ padding: '12px 16px', background: 'var(--rose-bg)', border: '1px solid var(--rose-border)', borderRadius: '12px', color: 'var(--rose)', fontSize: '13px', marginBottom: '22px', textAlign: 'left', fontWeight: 500, lineHeight: 1.5 }}>
             {error}
           </div>
         )}
 
-        <button className="btn" onClick={startLogin} style={{ width: '100%', justifyContent: 'center', padding: '13px 20px', fontSize: '14.5px', borderRadius: '14px', background: '#111827', color: '#ffffff', fontWeight: 600, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.12)', whiteSpace: 'normal' }}>
+        <button className="btn" onClick={startLogin} style={{ width: '100%', justifyContent: 'center', padding: '13px 20px', fontSize: '14.5px', borderRadius: '14px', background: 'var(--login-btn-bg)', color: 'var(--login-btn-color)', fontWeight: 600, boxShadow: '0 4px 14px rgba(15, 23, 42, 0.12)', whiteSpace: 'normal', border: 'none' }}>
           Sign In with Google Workspace
         </button>
 
-        <div style={{ marginTop: '24px', fontSize: '12px', color: '#64748b', lineHeight: 1.6 }}>
-          Restricted to authorized <strong style={{ color: '#0f172a' }}>@nsut.ac.in</strong> or <strong style={{ color: '#0f172a' }}>@nsit.ac.in</strong> accounts.<br />
+        <div style={{ marginTop: '24px', fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          Restricted to authorized <strong style={{ color: 'var(--text-primary)' }}>@nsut.ac.in</strong> or <strong style={{ color: 'var(--text-primary)' }}>@nsit.ac.in</strong> accounts.<br />
           Single Sign-On protected by NSUT OpenID Connect Provider 2.0.
         </div>
       </div>
@@ -1317,12 +1367,12 @@ function UserSlideDrawer({ userId, onClose }) {
                     <div style={{
                       marginTop: '12px',
                       padding: '16px',
-                      background: '#ffffff',
-                      border: '1px solid #cbd5e1',
+                      background: 'var(--card-bg)',
+                      border: '1px solid var(--card-border)',
                       borderRadius: '12px',
-                      boxShadow: '0 3px 12px rgba(15, 23, 42, 0.06)',
+                      boxShadow: 'var(--shadow-card)',
                     }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#1e3a8a', marginBottom: '12px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent-primary)', marginBottom: '12px' }}>
                         Assign Role for {appAccess.app}
                       </div>
                       <form onSubmit={(e) => handleInlineGrant(e, appAccess.app)} className="form-stack">
@@ -1346,7 +1396,7 @@ function UserSlideDrawer({ userId, onClose }) {
                         {/* Visual Human-Friendly Scope Selector */}
                         <div style={{ marginTop: '4px' }}>
                           <label className="field-label" style={{ fontSize: '11px', marginBottom: '6px' }}>Access Scope</label>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px', background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px', background: 'var(--bg-subtle)', padding: '3px', borderRadius: '8px' }}>
                             <button
                               type="button"
                               className="btn sm"
@@ -1356,10 +1406,10 @@ function UserSlideDrawer({ userId, onClose }) {
                                 padding: '5px 8px',
                                 fontSize: '11.5px',
                                 fontWeight: scopeType === 'GLOBAL' ? 600 : 500,
-                                background: scopeType === 'GLOBAL' ? '#ffffff' : 'transparent',
-                                border: scopeType === 'GLOBAL' ? '1px solid #cbd5e1' : '1px solid transparent',
-                                boxShadow: scopeType === 'GLOBAL' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                                color: scopeType === 'GLOBAL' ? '#0f172a' : '#64748b'
+                                background: scopeType === 'GLOBAL' ? 'var(--card-bg)' : 'transparent',
+                                border: scopeType === 'GLOBAL' ? '1px solid var(--card-border-hover)' : '1px solid transparent',
+                                boxShadow: scopeType === 'GLOBAL' ? 'var(--shadow-soft)' : 'none',
+                                color: scopeType === 'GLOBAL' ? 'var(--text-primary)' : 'var(--text-secondary)'
                               }}
                               onClick={() => setScopeType('GLOBAL')}
                             >
@@ -1374,10 +1424,10 @@ function UserSlideDrawer({ userId, onClose }) {
                                 padding: '5px 8px',
                                 fontSize: '11.5px',
                                 fontWeight: scopeType === 'ACADEMIC' ? 600 : 500,
-                                background: scopeType === 'ACADEMIC' ? '#ffffff' : 'transparent',
-                                border: scopeType === 'ACADEMIC' ? '1px solid #cbd5e1' : '1px solid transparent',
-                                boxShadow: scopeType === 'ACADEMIC' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                                color: scopeType === 'ACADEMIC' ? '#0f172a' : '#64748b'
+                                background: scopeType === 'ACADEMIC' ? 'var(--card-bg)' : 'transparent',
+                                border: scopeType === 'ACADEMIC' ? '1px solid var(--card-border-hover)' : '1px solid transparent',
+                                boxShadow: scopeType === 'ACADEMIC' ? 'var(--shadow-soft)' : 'none',
+                                color: scopeType === 'ACADEMIC' ? 'var(--text-primary)' : 'var(--text-secondary)'
                               }}
                               onClick={() => {
                                 setScopeType('ACADEMIC');
@@ -1404,10 +1454,10 @@ function UserSlideDrawer({ userId, onClose }) {
                                   padding: '5px 8px',
                                   fontSize: '11.5px',
                                   fontWeight: scopeType === 'APPS' ? 600 : 500,
-                                  background: scopeType === 'APPS' ? '#ffffff' : 'transparent',
-                                  border: scopeType === 'APPS' ? '1px solid #cbd5e1' : '1px solid transparent',
-                                  boxShadow: scopeType === 'APPS' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none',
-                                  color: scopeType === 'APPS' ? '#0f172a' : '#64748b'
+                                  background: scopeType === 'APPS' ? 'var(--card-bg)' : 'transparent',
+                                  border: scopeType === 'APPS' ? '1px solid var(--card-border-hover)' : '1px solid transparent',
+                                  boxShadow: scopeType === 'APPS' ? 'var(--shadow-soft)' : 'none',
+                                  color: scopeType === 'APPS' ? 'var(--text-primary)' : 'var(--text-secondary)'
                                 }}
                                 onClick={() => setScopeType('APPS')}
                               >
@@ -1610,8 +1660,12 @@ function Applications() {
         )}
         {apps.map((a) => (
           <div key={a.id} className="table-card" style={{ padding: '22px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap', gap: '8px' }}>
-              <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a' }}>{a.id}</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', color: 'var(--text-heading)' }}>{a.name}</h3>
+                <span className="badge blue mono" style={{ fontSize: '11px', fontWeight: 600 }}>{a.client_id || a.id}</span>
+                <span className="mono text-muted" style={{ fontSize: '11px' }}>({a.id})</span>
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span className={`badge ${a.confidential ? 'indigo' : 'blue'}`}>
                   {a.confidential ? 'Confidential Client' : 'Public Client (PKCE)'}
@@ -1632,7 +1686,9 @@ function Applications() {
                 </button>
               </div>
             </div>
-            <div className="text-muted" style={{ fontSize: '13px', marginBottom: '16px' }}>{a.name}</div>
+            <div className="text-muted" style={{ fontSize: '12px', marginBottom: '16px' }}>
+              Redirect URIs: <span className="mono">{a.redirect_uris?.join(', ')}</span>
+            </div>
 
             <div className="section-label">Roles &amp; Permissions</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
@@ -3238,7 +3294,7 @@ function MasterReferenceView() {
       )}
 
       {/* Summary KPI Strip */}
-      <div className="metric-grid" style={{ marginBottom: '24px' }}>
+      <div className="metrics-row" style={{ marginBottom: '24px' }}>
         <div className="metric-card">
           <div className="metric-title">Academic Departments</div>
           <div className="metric-value">{(data.departments || []).length}</div>
@@ -3254,9 +3310,9 @@ function MasterReferenceView() {
           <div className="metric-value">{(data.programs || []).length}</div>
           <div className="metric-sub">Valid degree & branch pairings</div>
         </div>
-        <div className="metric-card" style={{ borderLeft: '4px solid #10b981' }}>
+        <div className="metric-card" style={{ borderLeft: '4px solid var(--emerald)' }}>
           <div className="metric-title">Active Semester</div>
-          <div className="metric-value" style={{ fontSize: '20px', color: '#065f46' }}>
+          <div className="metric-value" style={{ fontSize: '20px', color: 'var(--emerald)' }}>
             {currentTerm?.code || 'None'}
           </div>
           <div className="metric-sub">{currentTerm?.name || 'No term marked active'}</div>
@@ -3265,7 +3321,7 @@ function MasterReferenceView() {
 
       {/* Subtab Navigation and Search Strip */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+        <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-subtle)', padding: '4px', borderRadius: '10px' }}>
           {[
             { id: 'depts', label: `Departments (${(data.departments || []).length})` },
             { id: 'branches', label: `Branches (${(data.branches || []).length})` },
@@ -3280,12 +3336,12 @@ function MasterReferenceView() {
                 padding: '6px 14px',
                 borderRadius: '8px',
                 border: 'none',
-                background: subTab === t.id ? '#ffffff' : 'transparent',
-                color: subTab === t.id ? '#0f172a' : '#64748b',
+                background: subTab === t.id ? 'var(--card-bg)' : 'transparent',
+                color: subTab === t.id ? 'var(--text-primary)' : 'var(--text-secondary)',
                 fontWeight: subTab === t.id ? 600 : 500,
                 fontSize: '12.5px',
                 cursor: 'pointer',
-                boxShadow: subTab === t.id ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                boxShadow: subTab === t.id ? 'var(--shadow-soft)' : 'none',
                 transition: 'all 0.15s ease',
               }}
             >

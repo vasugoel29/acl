@@ -19,7 +19,7 @@ beforeAll(async () => {
   if (r.stage !== 'done') throw new Error('admin login failed');
   adminToken = r.tokens.access_token;
   await pool.query(
-    `INSERT INTO applications (id, name, redirect_uris) VALUES ('HAJIRI', 'Hajiri Attendance', $1)
+    `INSERT INTO applications (id, client_id, name, redirect_uris) VALUES ('app_01JHAJIRI00000000000000000', 'HAJIRI', 'Hajiri Attendance', $1)
      ON CONFLICT (id) DO UPDATE SET redirect_uris = EXCLUDED.redirect_uris`,
     [[redirectFor('HAJIRI')]],
   );
@@ -221,7 +221,7 @@ describe('ACL assignment end-to-end', () => {
     expect(reg.statusCode).toBe(201);
     const { client_secret } = reg.json();
     expect(client_secret).toBeTruthy();
-    const stored = await pool.query(`SELECT client_secret_hash FROM applications WHERE id='LIBRARY'`);
+    const stored = await pool.query(`SELECT client_secret_hash FROM applications WHERE id='LIBRARY' OR client_id='LIBRARY'`);
     expect(stored.rows[0].client_secret_hash).not.toBe(client_secret); // hashed at rest
 
     // CRAS is public (no secret) => cannot call check

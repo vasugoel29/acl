@@ -390,14 +390,6 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     // ---------------- Directory ----------------
-    admin.get('/v1/departments', async (req) => {
-      need(req, 'users:read');
-      const r = await pool.query(
-        `SELECT DISTINCT dept FROM users WHERE dept IS NOT NULL AND dept != '' ORDER BY dept ASC`,
-      );
-      return { departments: r.rows.map((row) => row.dept as string) };
-    });
-
     admin.get('/v1/users', async (req) => {
       need(req, 'users:read');
       const fullPii = hasFullPiiAccess(req.admin!.access);
@@ -609,7 +601,6 @@ export async function adminRoutes(app: FastifyInstance) {
       const anonEmail = `deleted+${id.toLowerCase()}@${config.allowedDomain}`;
       await tx(async (c) => {
         await c.query(`DELETE FROM user_app_roles WHERE user_id = $1`, [id]);
-        await c.query(`DELETE FROM user_permission_overrides WHERE user_id = $1`, [id]);
         await c.query(
           `UPDATE users
               SET email = $2,
@@ -620,9 +611,12 @@ export async function adminRoutes(app: FastifyInstance) {
                   twelve_digit_roll_no = NULL,
                   employee_id = NULL,
                   designation = NULL,
+                  designation_code = NULL,
                   mobile_no = NULL,
                   dept = NULL,
+                  dept_code = NULL,
                   branch = NULL,
+                  program_id = NULL,
                   degree = NULL,
                   year = NULL,
                   semester = NULL,
@@ -846,9 +840,9 @@ export async function adminRoutes(app: FastifyInstance) {
         `SELECT a.id,a.name,a.redirect_uris,a.status,a.created_at,
                 (a.client_secret_hash IS NOT NULL) AS confidential,
                 COALESCE((SELECT json_agg(json_build_object('role',r.role,'is_default',r.is_default,'description',r.description,
-                   'permissions',(SELECT COALESCE(json_agg(rp.permission ORDER BY rp.permission),'[]') FROM role_permissions rp WHERE rp.app_id=r.app_id AND rp.role=r.role)))
+                   'permissions',COALESCE(r.permissions, '{}')))
                    FROM app_roles r WHERE r.app_id=a.id),'[]') AS roles,
-                COALESCE((SELECT json_agg(p.permission ORDER BY p.permission) FROM app_permissions p WHERE p.app_id=a.id),'[]') AS permissions
+                COALESCE((SELECT json_agg(p.permission ORDER BY p.permission) FROM app_resources p WHERE p.app_id=a.id),'[]') AS permissions
            FROM applications a
           ORDER BY a.id`,
       );
@@ -914,7 +908,7 @@ export async function adminRoutes(app: FastifyInstance) {
       const b = z.object({ permissions: z.array(z.object({ permission: z.string().regex(/^[a-z_]+:[a-z_]+$/), description: z.string().optional() })) }).parse(req.body);
       await tx(async (c) => {
         for (const p of b.permissions) {
-          await c.query(`INSERT INTO app_permissions (app_id,permission,description) VALUES ($1,$2,$3)
+          await c.query(`INSERT INTO app_resources (app_id,permission,description) VALUES ($1,$2,$3)
                          ON CONFLICT (app_id,permission) DO UPDATE SET description=EXCLUDED.description`, [appId, p.permission, p.description ?? null]);
         }
         await audit({ actorId: req.admin!.userId, action: 'PERMISSIONS_DEFINED', targetType: 'app', targetId: appId, appId, metadata: { count: b.permissions.length } }, c);
@@ -943,11 +937,16 @@ export async function adminRoutes(app: FastifyInstance) {
       const changedRoles = b.roles.map((r) => r.role);
       const affected = await tx(async (c) => {
         for (const r of b.roles) {
-          await c.query(`INSERT INTO app_roles (app_id,role,description,is_default,default_scope) VALUES ($1,$2,$3,$4,$5)
-                         ON CONFLICT (app_id,role) DO UPDATE SET description=EXCLUDED.description,is_default=EXCLUDED.is_default,default_scope=EXCLUDED.default_scope`,
-            [appId, r.role, r.description ?? null, r.is_default, r.default_scope]);
-          await c.query(`DELETE FROM role_permissions WHERE app_id=$1 AND role=$2`, [appId, r.role]);
-          for (const p of r.permissions) await c.query(`INSERT INTO role_permissions (app_id,role,permission) VALUES ($1,$2,$3)`, [appId, r.role, p]);
+          await c.query(
+            `INSERT INTO app_roles (app_id, role, permissions, description, is_default, default_scope)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (app_id, role) DO UPDATE SET
+               permissions = EXCLUDED.permissions,
+               description = EXCLUDED.description,
+               is_default = EXCLUDED.is_default,
+               default_scope = EXCLUDED.default_scope`,
+            [appId, r.role, r.permissions, r.description ?? null, r.is_default, r.default_scope],
+          );
         }
         // Collect all users who currently have any role in this app before deletion
         const allAppUsers = (await c.query(`SELECT DISTINCT user_id FROM user_app_roles WHERE app_id=$1`, [appId])).rows;
@@ -971,11 +970,11 @@ export async function adminRoutes(app: FastifyInstance) {
                 p.permission,
                 p.description,
                 COALESCE((
-                  SELECT json_agg(rp.role ORDER BY rp.role)
-                  FROM role_permissions rp
-                  WHERE rp.app_id = p.app_id AND rp.permission = p.permission
+                  SELECT json_agg(ar.role ORDER BY ar.role)
+                  FROM app_roles ar
+                  WHERE ar.app_id = p.app_id AND p.permission = ANY(ar.permissions)
                 ), '[]') AS roles
-         FROM app_permissions p
+         FROM app_resources p
          JOIN applications a ON a.id = p.app_id
          WHERE ($1::boolean = true OR p.app_id != $2)
          ORDER BY p.app_id, p.permission`,
@@ -997,7 +996,7 @@ export async function adminRoutes(app: FastifyInstance) {
 
       await tx(async (c) => {
         await c.query(
-          `INSERT INTO app_permissions (app_id, permission, description)
+          `INSERT INTO app_resources (app_id, permission, description)
            VALUES ($1, $2, $3)
            ON CONFLICT (app_id, permission) DO UPDATE SET description = EXCLUDED.description`,
           [b.app_id, b.permission, b.description ?? null],
@@ -1021,7 +1020,7 @@ export async function adminRoutes(app: FastifyInstance) {
       need(req, 'apps:manage');
       const removed = await tx(async (c) => {
         const r = await c.query(
-          `DELETE FROM app_permissions WHERE app_id = $1 AND permission = $2 RETURNING permission`,
+          `DELETE FROM app_resources WHERE app_id = $1 AND permission = $2 RETURNING permission`,
           [appId, permission],
         );
         if (!r.rowCount) return null;
@@ -1132,6 +1131,328 @@ export async function adminRoutes(app: FastifyInstance) {
         [q.actor ?? null, q.target ?? null, q.app ?? null, q.action ?? null, q.from ?? null, q.to ?? null, apps, q.limit],
       );
       return { entries: r.rows };
+    });
+
+    // ---------------- Master Reference Data Admin Management ----------------
+    admin.get('/v1/admin/master-data', async (req) => {
+      need(req, 'admin:all');
+      const [depts, degrees, branches, programs, terms, designations] = await Promise.all([
+        pool.query(`
+          SELECT d.code, d.name, d.status, d.created_at, d.updated_at,
+                 COUNT(u.id)::int AS user_count
+          FROM departments d
+          LEFT JOIN users u ON u.dept_code = d.code
+          GROUP BY d.code, d.name, d.status, d.created_at, d.updated_at
+          ORDER BY d.name ASC
+        `),
+        pool.query(`
+          SELECT deg.code, deg.name, deg.duration_years, deg.status, deg.created_at, deg.updated_at,
+                 COUNT(DISTINCT p.id)::int AS program_count
+          FROM degrees deg
+          LEFT JOIN programs p ON p.degree_code = deg.code
+          GROUP BY deg.code, deg.name, deg.duration_years, deg.status, deg.created_at, deg.updated_at
+          ORDER BY deg.duration_years DESC NULLS LAST, deg.name ASC
+        `),
+        pool.query(`
+          SELECT b.code, b.dept_code, d.name AS dept_name, b.name, b.status, b.created_at, b.updated_at,
+                 COUNT(u.id)::int AS student_count
+          FROM branches b
+          JOIN departments d ON d.code = b.dept_code
+          LEFT JOIN programs p ON p.branch_code = b.code
+          LEFT JOIN users u ON u.program_id = p.id
+          GROUP BY b.code, b.dept_code, d.name, b.name, b.status, b.created_at, b.updated_at
+          ORDER BY b.dept_code ASC, b.name ASC
+        `),
+        pool.query(`
+          SELECT p.id, p.degree_code, deg.name AS degree_name, deg.duration_years,
+                 p.branch_code, b.name AS branch_name, b.dept_code, d.name AS dept_name,
+                 p.status, p.created_at,
+                 COUNT(u.id)::int AS student_count
+          FROM programs p
+          JOIN degrees deg ON deg.code = p.degree_code
+          JOIN branches b ON b.code = p.branch_code
+          JOIN departments d ON d.code = b.dept_code
+          LEFT JOIN users u ON u.program_id = p.id
+          GROUP BY p.id, p.degree_code, deg.name, deg.duration_years, p.branch_code, b.name, b.dept_code, d.name, p.status, p.created_at
+          ORDER BY d.name ASC, b.name ASC
+        `),
+        pool.query(`
+          SELECT code, name, start_date, end_date, is_current, created_at
+          FROM academic_terms
+          ORDER BY start_date DESC
+        `),
+        pool.query(`
+          SELECT des.code, des.name, des.category, des.rank, des.status, des.created_at, des.updated_at,
+                 COUNT(u.id)::int AS user_count
+          FROM designations des
+          LEFT JOIN users u ON u.designation_code = des.code
+          GROUP BY des.code, des.name, des.category, des.rank, des.status, des.created_at, des.updated_at
+          ORDER BY des.rank ASC, des.name ASC
+        `),
+      ]);
+
+      return {
+        departments: depts.rows,
+        degrees: degrees.rows,
+        branches: branches.rows,
+        programs: programs.rows,
+        terms: terms.rows,
+        designations: designations.rows,
+      };
+    });
+
+    admin.post('/v1/admin/departments', async (req, reply) => {
+      need(req, 'admin:all');
+      const b = z
+        .object({
+          code: z.string().regex(/^[A-Z0-9_]+$/).min(2).max(20),
+          name: z.string().min(2),
+        })
+        .parse(req.body);
+
+      await pool.query(
+        `INSERT INTO departments (code, name, status) VALUES ($1, $2, 'ACTIVE')
+         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, status = 'ACTIVE', updated_at = now()`,
+        [b.code, b.name],
+      );
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'DEPARTMENT_CREATED',
+        targetType: 'department',
+        targetId: b.code,
+        metadata: { name: b.name },
+        ip: req.ip,
+      });
+
+      return reply.code(201).send({ ok: true, code: b.code });
+    });
+
+    admin.patch('/v1/admin/departments/:code', async (req) => {
+      need(req, 'admin:all');
+      const { code } = req.params as { code: string };
+      const b = z
+        .object({
+          name: z.string().min(2).optional(),
+          status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+        })
+        .parse(req.body);
+
+      await pool.query(
+        `UPDATE departments
+         SET name = COALESCE($2, name),
+             status = COALESCE($3, status),
+             updated_at = now()
+         WHERE code = $1`,
+        [code, b.name ?? null, b.status ?? null],
+      );
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'DEPARTMENT_UPDATED',
+        targetType: 'department',
+        targetId: code,
+        metadata: b,
+        ip: req.ip,
+      });
+
+      return { ok: true, code };
+    });
+
+    admin.post('/v1/admin/branches', async (req, reply) => {
+      need(req, 'admin:all');
+      const b = z
+        .object({
+          code: z.string().regex(/^[A-Z0-9_]+$/).min(2).max(20),
+          dept_code: z.string().min(2),
+          name: z.string().min(2),
+        })
+        .parse(req.body);
+
+      await pool.query(
+        `INSERT INTO branches (code, dept_code, name, status) VALUES ($1, $2, $3, 'ACTIVE')
+         ON CONFLICT (code) DO UPDATE SET dept_code = EXCLUDED.dept_code, name = EXCLUDED.name, status = 'ACTIVE', updated_at = now()`,
+        [b.code, b.dept_code, b.name],
+      );
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'BRANCH_CREATED',
+        targetType: 'branch',
+        targetId: b.code,
+        metadata: { dept_code: b.dept_code, name: b.name },
+        ip: req.ip,
+      });
+
+      return reply.code(201).send({ ok: true, code: b.code });
+    });
+
+    admin.patch('/v1/admin/branches/:code', async (req) => {
+      need(req, 'admin:all');
+      const { code } = req.params as { code: string };
+      const b = z
+        .object({
+          name: z.string().min(2).optional(),
+          dept_code: z.string().optional(),
+          status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+        })
+        .parse(req.body);
+
+      await pool.query(
+        `UPDATE branches
+         SET name = COALESCE($2, name),
+             dept_code = COALESCE($3, dept_code),
+             status = COALESCE($4, status),
+             updated_at = now()
+         WHERE code = $1`,
+        [code, b.name ?? null, b.dept_code ?? null, b.status ?? null],
+      );
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'BRANCH_UPDATED',
+        targetType: 'branch',
+        targetId: code,
+        metadata: b,
+        ip: req.ip,
+      });
+
+      return { ok: true, code };
+    });
+
+    admin.post('/v1/admin/terms', async (req, reply) => {
+      need(req, 'admin:all');
+      const b = z
+        .object({
+          code: z.string().regex(/^[A-Z0-9_-]+$/).min(3),
+          name: z.string().min(3),
+          start_date: z.string(),
+          end_date: z.string(),
+          is_current: z.boolean().default(false),
+        })
+        .parse(req.body);
+
+      await tx(async (c) => {
+        if (b.is_current) {
+          await c.query(`UPDATE academic_terms SET is_current = false WHERE is_current = true`);
+        }
+        await c.query(
+          `INSERT INTO academic_terms (code, name, start_date, end_date, is_current)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (code) DO UPDATE SET
+             name = EXCLUDED.name,
+             start_date = EXCLUDED.start_date,
+             end_date = EXCLUDED.end_date,
+             is_current = EXCLUDED.is_current`,
+          [b.code, b.name, b.start_date, b.end_date, b.is_current],
+        );
+      });
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'ACADEMIC_TERM_SAVED',
+        targetType: 'term',
+        targetId: b.code,
+        metadata: b,
+        ip: req.ip,
+      });
+
+      return reply.code(201).send({ ok: true, code: b.code });
+    });
+
+    admin.patch('/v1/admin/terms/:code/activate', async (req) => {
+      need(req, 'admin:all');
+      const { code } = req.params as { code: string };
+
+      await tx(async (c) => {
+        await c.query(`UPDATE academic_terms SET is_current = false WHERE is_current = true`);
+        const r = await c.query(
+          `UPDATE academic_terms SET is_current = true WHERE code = $1 RETURNING code`,
+          [code],
+        );
+        if (r.rowCount === 0) {
+          throw new HttpError(404, `Term ${code} not found`);
+        }
+      });
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'ACADEMIC_TERM_ACTIVATED',
+        targetType: 'term',
+        targetId: code,
+        ip: req.ip,
+      });
+
+      return { ok: true, active_term: code };
+    });
+
+    admin.post('/v1/admin/designations', async (req, reply) => {
+      need(req, 'admin:all');
+      const b = z
+        .object({
+          code: z.string().regex(/^[A-Z0-9_]+$/).min(2),
+          name: z.string().min(2),
+          category: z.enum(['FACULTY', 'STAFF']),
+          rank: z.number().int().default(100),
+        })
+        .parse(req.body);
+
+      await pool.query(
+        `INSERT INTO designations (code, name, category, rank, status) VALUES ($1, $2, $3, $4, 'ACTIVE')
+         ON CONFLICT (code) DO UPDATE SET
+           name = EXCLUDED.name,
+           category = EXCLUDED.category,
+           rank = EXCLUDED.rank,
+           status = 'ACTIVE',
+           updated_at = now()`,
+        [b.code, b.name, b.category, b.rank],
+      );
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'DESIGNATION_CREATED',
+        targetType: 'designation',
+        targetId: b.code,
+        metadata: b,
+        ip: req.ip,
+      });
+
+      return reply.code(201).send({ ok: true, code: b.code });
+    });
+
+    admin.patch('/v1/admin/designations/:code', async (req) => {
+      need(req, 'admin:all');
+      const { code } = req.params as { code: string };
+      const b = z
+        .object({
+          name: z.string().min(2).optional(),
+          category: z.enum(['FACULTY', 'STAFF']).optional(),
+          rank: z.number().int().optional(),
+          status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+        })
+        .parse(req.body);
+
+      await pool.query(
+        `UPDATE designations
+         SET name = COALESCE($2, name),
+             category = COALESCE($3, category),
+             rank = COALESCE($4, rank),
+             status = COALESCE($5, status),
+             updated_at = now()
+         WHERE code = $1`,
+        [code, b.name ?? null, b.category ?? null, b.rank ?? null, b.status ?? null],
+      );
+
+      await audit({
+        actorId: req.admin!.userId,
+        action: 'DESIGNATION_UPDATED',
+        targetType: 'designation',
+        targetId: code,
+        metadata: b,
+        ip: req.ip,
+      });
+
+      return { ok: true, code };
     });
   });
 }

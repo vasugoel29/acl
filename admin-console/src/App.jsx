@@ -16,6 +16,7 @@ import {
   IconResource,
   IconChevronDown,
   IconCheck,
+  IconDatabase,
 } from './icons.jsx';
 
 function useDebounce(value, delay = 300) {
@@ -458,6 +459,18 @@ export default function App() {
             <span className="nav-label-short">Data Sync</span>
           </button>
           <button
+            id="tab-reference"
+            role="tab"
+            aria-selected={activeTab === 'reference'}
+            aria-controls="tabpanel-reference"
+            className={`nav-button ${activeTab === 'reference' ? 'active' : ''}`}
+            onClick={() => setActiveTab('reference')}
+          >
+            <span className="nav-icon"><IconDatabase size={18} /></span>
+            <span className="nav-label-full">Master Reference Data</span>
+            <span className="nav-label-short">Master Data</span>
+          </button>
+          <button
             id="tab-audit"
             role="tab"
             aria-selected={activeTab === 'audit'}
@@ -561,6 +574,17 @@ export default function App() {
             style={{ display: activeTab === 'ingest' ? 'block' : 'none' }}
           >
             {visitedTabs.has('ingest') && <IngestionCenter />}
+          </div>
+
+          <div
+            id="tabpanel-reference"
+            role="tabpanel"
+            aria-labelledby="tab-reference"
+            hidden={activeTab !== 'reference'}
+            className="tab-panel-container"
+            style={{ display: activeTab === 'reference' ? 'block' : 'none' }}
+          >
+            {visitedTabs.has('reference') && <MasterReferenceView />}
           </div>
 
           <div
@@ -886,7 +910,10 @@ function Directory() {
           <SearchableSelect
             options={[
               { value: '', label: 'All Departments' },
-              ...departments.map((d) => ({ value: d, label: d })),
+              ...departments.map((d) => ({
+                value: typeof d === 'string' ? d : d.name,
+                label: typeof d === 'string' ? d : `${d.name} (${d.code})`,
+              })),
             ]}
             value={dept}
             onChange={(val) => { setDept(val); setPage(0); }}
@@ -3114,3 +3141,498 @@ function RegisterAppModal({ onClose }) {
     </div>
   );
 }
+
+/* ================= 9. Master Reference Data Center ================= */
+function MasterReferenceView() {
+  const [data, setData] = useState({
+    departments: [],
+    degrees: [],
+    branches: [],
+    programs: [],
+    terms: [],
+    designations: [],
+  });
+  const [loading, setLoading] = useState(true);
+  const [subTab, setSubTab] = useState('depts'); // 'depts' | 'branches' | 'programs' | 'terms' | 'desigs'
+  const [search, setSearch] = useState('');
+  const [modalType, setModalType] = useState(null); // 'dept' | 'branch' | 'term'
+  const [msg, setMsg] = useState('');
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await api('/v1/admin/master-data');
+      setData(res);
+    } catch (err) {
+      console.error('Failed to load master data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const activateTerm = async (code) => {
+    try {
+      await api(`/v1/admin/terms/${code}/activate`, { method: 'PATCH' });
+      setMsg(`Term ${code} is now set as the active academic semester.`);
+      await loadData();
+      setTimeout(() => setMsg(''), 4000);
+    } catch (err) {
+      alert(`Failed to activate term: ${err.message}`);
+    }
+  };
+
+  const filteredDepts = useMemo(() => {
+    const q = search.toLowerCase();
+    return (data.departments || []).filter(
+      (d) => d.code.toLowerCase().includes(q) || d.name.toLowerCase().includes(q),
+    );
+  }, [data.departments, search]);
+
+  const filteredBranches = useMemo(() => {
+    const q = search.toLowerCase();
+    return (data.branches || []).filter(
+      (b) =>
+        b.code.toLowerCase().includes(q) ||
+        b.name.toLowerCase().includes(q) ||
+        b.dept_code.toLowerCase().includes(q),
+    );
+  }, [data.branches, search]);
+
+  const filteredPrograms = useMemo(() => {
+    const q = search.toLowerCase();
+    return (data.programs || []).filter(
+      (p) =>
+        p.degree_code.toLowerCase().includes(q) ||
+        p.branch_code.toLowerCase().includes(q) ||
+        p.dept_code.toLowerCase().includes(q) ||
+        p.branch_name.toLowerCase().includes(q),
+    );
+  }, [data.programs, search]);
+
+  const currentTerm = (data.terms || []).find((t) => t.is_current);
+
+  return (
+    <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+      <div className="view-header" style={{ marginBottom: '24px' }}>
+        <div>
+          <h1 className="view-title">University Master Reference Data</h1>
+          <p className="view-subtitle">
+            Single source of truth for academic departments, branches, program degrees, semesters, and staff designations across campus.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn sm" onClick={loadData}>
+            <IconRefresh size={14} /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {msg && (
+        <div style={{ padding: '12px 16px', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', color: '#065f46', marginBottom: '20px', fontSize: '13px' }}>
+          {msg}
+        </div>
+      )}
+
+      {/* Summary KPI Strip */}
+      <div className="metric-grid" style={{ marginBottom: '24px' }}>
+        <div className="metric-card">
+          <div className="metric-title">Academic Departments</div>
+          <div className="metric-value">{(data.departments || []).length}</div>
+          <div className="metric-sub">Primary faculty units</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-title">Branches & Streams</div>
+          <div className="metric-value">{(data.branches || []).length}</div>
+          <div className="metric-sub">Engineering & sciences</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-title">Degree Programs</div>
+          <div className="metric-value">{(data.programs || []).length}</div>
+          <div className="metric-sub">Valid degree & branch pairings</div>
+        </div>
+        <div className="metric-card" style={{ borderLeft: '4px solid #10b981' }}>
+          <div className="metric-title">Active Semester</div>
+          <div className="metric-value" style={{ fontSize: '20px', color: '#065f46' }}>
+            {currentTerm?.code || 'None'}
+          </div>
+          <div className="metric-sub">{currentTerm?.name || 'No term marked active'}</div>
+        </div>
+      </div>
+
+      {/* Subtab Navigation and Search Strip */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '4px', background: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
+          {[
+            { id: 'depts', label: `Departments (${(data.departments || []).length})` },
+            { id: 'branches', label: `Branches (${(data.branches || []).length})` },
+            { id: 'programs', label: `Programs (${(data.programs || []).length})` },
+            { id: 'terms', label: `Terms & Semesters (${(data.terms || []).length})` },
+            { id: 'desigs', label: `Designations (${(data.designations || []).length})` },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => { setSubTab(t.id); setSearch(''); }}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '8px',
+                border: 'none',
+                background: subTab === t.id ? '#ffffff' : 'transparent',
+                color: subTab === t.id ? '#0f172a' : '#64748b',
+                fontWeight: subTab === t.id ? 600 : 500,
+                fontSize: '12.5px',
+                cursor: 'pointer',
+                boxShadow: subTab === t.id ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {['depts', 'branches', 'programs'].includes(subTab) && (
+            <div style={{ position: 'relative', width: '220px' }}>
+              <input
+                className="input"
+                style={{ height: '36px', paddingLeft: '30px', fontSize: '12.5px' }}
+                placeholder="Search codes or names…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <span style={{ position: 'absolute', left: '10px', top: '10px', color: '#94a3b8', pointerEvents: 'none' }}>
+                <IconSearch size={14} />
+              </span>
+            </div>
+          )}
+          {subTab === 'depts' && (
+            <button className="btn primary sm" onClick={() => setModalType('dept')}>
+              <IconPlus size={14} /> Add Department
+            </button>
+          )}
+          {subTab === 'branches' && (
+            <button className="btn primary sm" onClick={() => setModalType('branch')}>
+              <IconPlus size={14} /> Add Branch
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Content Table Card */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading reference tables…</div>
+        ) : (
+          <div className="table-responsive">
+            {subTab === 'depts' && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '120px' }}>Code</th>
+                    <th>Department Name</th>
+                    <th style={{ width: '160px', textAlign: 'right' }}>Linked Users</th>
+                    <th style={{ width: '120px', textAlign: 'center' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDepts.map((d) => (
+                    <tr key={d.code}>
+                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{d.code}</span></td>
+                      <td style={{ fontWeight: 500 }}>{d.name}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(d.user_count || 0).toLocaleString()}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`badge ${d.status === 'ACTIVE' ? 'success' : 'muted'} sm`}>
+                          {d.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {subTab === 'branches' && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '120px' }}>Branch Code</th>
+                    <th style={{ width: '140px' }}>Department</th>
+                    <th>Branch / Stream Name</th>
+                    <th style={{ width: '140px', textAlign: 'right' }}>Students</th>
+                    <th style={{ width: '100px', textAlign: 'center' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredBranches.map((b) => (
+                    <tr key={b.code}>
+                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{b.code}</span></td>
+                      <td><span className="badge neutral sm">{b.dept_code}</span></td>
+                      <td style={{ fontWeight: 500 }}>{b.name}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(b.student_count || 0).toLocaleString()}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`badge ${b.status === 'ACTIVE' ? 'success' : 'muted'} sm`}>
+                          {b.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {subTab === 'programs' && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '80px' }}>ID</th>
+                    <th style={{ width: '140px' }}>Degree</th>
+                    <th style={{ width: '140px' }}>Branch</th>
+                    <th>Program Title</th>
+                    <th style={{ width: '100px' }}>Duration</th>
+                    <th style={{ width: '130px', textAlign: 'right' }}>Enrolled</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPrograms.map((p) => (
+                    <tr key={p.id}>
+                      <td className="mono" style={{ color: '#64748b' }}>#{p.id}</td>
+                      <td><span className="badge primary sm" style={{ fontWeight: 600 }}>{p.degree_code}</span></td>
+                      <td><span className="badge neutral sm">{p.branch_code}</span></td>
+                      <td style={{ fontWeight: 500 }}>{p.degree_name} in {p.branch_name}</td>
+                      <td>{p.duration_years ? `${p.duration_years} yrs` : 'Research'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(p.student_count || 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {subTab === 'terms' && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '140px' }}>Term Code</th>
+                    <th>Term Name</th>
+                    <th style={{ width: '140px' }}>Start Date</th>
+                    <th style={{ width: '140px' }}>End Date</th>
+                    <th style={{ width: '140px', textAlign: 'center' }}>Current Active</th>
+                    <th style={{ width: '140px', textAlign: 'right' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.terms || []).map((t) => (
+                    <tr key={t.code} style={{ background: t.is_current ? '#f0fdf4' : 'transparent' }}>
+                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{t.code}</span></td>
+                      <td style={{ fontWeight: 600 }}>{t.name}</td>
+                      <td className="mono">{String(t.start_date).slice(0, 10)}</td>
+                      <td className="mono">{String(t.end_date).slice(0, 10)}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        {t.is_current ? (
+                          <span className="badge success sm" style={{ fontWeight: 700 }}>ACTIVE NOW</span>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: '12px' }}>Inactive</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        {!t.is_current && (
+                          <button className="btn sm" onClick={() => activateTerm(t.code)}>
+                            Set as Current
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {subTab === 'desigs' && (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '140px' }}>Code</th>
+                    <th>Designation Title</th>
+                    <th style={{ width: '120px' }}>Category</th>
+                    <th style={{ width: '100px' }}>Hierarchy Rank</th>
+                    <th style={{ width: '140px', textAlign: 'right' }}>Assigned Faculty/Staff</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.designations || []).map((d) => (
+                    <tr key={d.code}>
+                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{d.code}</span></td>
+                      <td style={{ fontWeight: 500 }}>{d.name}</td>
+                      <td>
+                        <span className={`badge ${d.category === 'FACULTY' ? 'primary' : 'neutral'} sm`}>
+                          {d.category}
+                        </span>
+                      </td>
+                      <td className="mono">{d.rank}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(d.user_count || 0).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
+      {modalType === 'dept' && (
+        <CreateDeptModal
+          onClose={() => setModalType(null)}
+          onSuccess={() => { setModalType(null); loadData(); }}
+        />
+      )}
+
+      {modalType === 'branch' && (
+        <CreateBranchModal
+          departments={data.departments || []}
+          onClose={() => setModalType(null)}
+          onSuccess={() => { setModalType(null); loadData(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function CreateDeptModal({ onClose, onSuccess }) {
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/v1/admin/departments', {
+        method: 'POST',
+        body: JSON.stringify({ code: code.toUpperCase().trim(), name: name.trim() }),
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card">
+        <div className="modal-header">
+          <h2>Add Department</h2>
+          <button className="btn sm" onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body form-stack">
+            <div>
+              <label className="field-label">Department Code (Uppercase letters/numbers)</label>
+              <input
+                className="input mono"
+                placeholder="e.g. AI"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                required
+              />
+            </div>
+            <div>
+              <label className="field-label">Full Department Name</label>
+              <input
+                className="input"
+                placeholder="e.g. Artificial Intelligence"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+            {error && <div style={{ color: '#b91c1c', fontSize: '12px' }}>{error}</div>}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn sm" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn primary sm">Create Department</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function CreateBranchModal({ departments, onClose, onSuccess }) {
+  const [code, setCode] = useState('');
+  const [deptCode, setDeptCode] = useState(departments[0]?.code || 'CSE');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/v1/admin/branches', {
+        method: 'POST',
+        body: JSON.stringify({
+          code: code.toUpperCase().trim(),
+          dept_code: deptCode,
+          name: name.trim(),
+        }),
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-card">
+        <div className="modal-header">
+          <h2>Add Branch / Stream</h2>
+          <button className="btn sm" onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body form-stack">
+            <div>
+              <label className="field-label">Parent Department</label>
+              <select
+                className="input"
+                value={deptCode}
+                onChange={(e) => setDeptCode(e.target.value)}
+                required
+              >
+                {departments.map((d) => (
+                  <option key={d.code} value={d.code}>{d.name} ({d.code})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="field-label">Branch Code (Uppercase letters/numbers)</label>
+              <input
+                className="input mono"
+                placeholder="e.g. AIML"
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                required
+              />
+            </div>
+            <div>
+              <label className="field-label">Full Branch / Stream Name</label>
+              <input
+                className="input"
+                placeholder="e.g. Artificial Intelligence & Machine Learning"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+            {error && <div style={{ color: '#b91c1c', fontSize: '12px' }}>{error}</div>}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn sm" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn primary sm">Create Branch</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+

@@ -6,6 +6,7 @@ import cookie from '@fastify/cookie';
 import { config, isProd, validateProdConfig } from './config.js';
 import { oidcRoutes } from './routes/oidc.js';
 import { adminRoutes, registerErrorHandler } from './routes/admin.js';
+import { referenceRoutes } from './routes/reference.js';
 import { pool } from './db/pool.js';
 import { redis } from './redis.js';
 
@@ -70,6 +71,7 @@ export async function buildApp(opts: { logger?: boolean } = {}) {
 
   await app.register(oidcRoutes);
   await app.register(adminRoutes);
+  await app.register(referenceRoutes);
   return app;
 }
 

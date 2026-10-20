@@ -1,6 +1,7 @@
 import { parse } from 'csv-parse/sync';
 import { pool, tx } from '../db/pool.js';
 import { escapeCsvCell, newId } from '../util.js';
+import { backfillUserReferences } from '../db/masterData.js';
 import { audit } from '../audit.js';
 import { bumpAclVersion } from '../acl/engine.js';
 import { publishAclVersion, denyUserTokens } from '../tokens/access.js';
@@ -403,6 +404,15 @@ export async function importUsersCsv(csv: string, actorId?: string, jobId?: stri
         .map((e) => [e.row, escapeCsvCell(e.email ?? ''), escapeCsvCell(e.category), escapeCsvCell(e.error)].join(','))
         .join('\n');
       await redis.set(`job:errors:${jobId}`, errorCsvHeader + errorCsvRows, 'EX', 172800); // 48-hour retention
+    }
+
+    // Automatically sync master data reference columns (dept_code, program_id, designation_code)
+    try {
+      await tx(async (c) => {
+        await backfillUserReferences(c);
+      });
+    } catch (err: any) {
+      console.error('master data backfill failed after import:', err);
     }
 
     await audit({

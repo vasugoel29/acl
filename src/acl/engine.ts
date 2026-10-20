@@ -125,31 +125,34 @@ export interface ResolvedForApp extends EffectiveAccess {
 }
 
 export async function resolveForApp(userId: string, appId: string, db: Queryable = pool): Promise<ResolvedForApp> {
-  const [grantRows, rpRows, ovRows] = await Promise.all([
-    db.query(
-      `SELECT role, scope FROM user_app_roles
-        WHERE user_id=$1 AND app_id=$2 AND (expires_at IS NULL OR expires_at > now())`,
-      [userId, appId],
-    ),
-    db.query(`SELECT role, permission FROM role_permissions WHERE app_id=$1`, [appId]),
-    db.query(`SELECT permission, effect FROM user_permission_overrides WHERE user_id=$1 AND app_id=$2`, [
-      userId,
-      appId,
-    ]),
-  ]);
+  const grantRows = await db.query<{ role: string; scope: Scope; permissions: string[] }>(
+    `SELECT uar.role, uar.scope, ar.permissions
+     FROM user_app_roles uar
+     JOIN app_roles ar ON ar.app_id = uar.app_id AND ar.role = uar.role
+     WHERE uar.user_id = $1 AND uar.app_id = $2
+       AND (uar.expires_at IS NULL OR uar.expires_at > now())`,
+    [userId, appId],
+  );
+
   const rolePermissions: Record<string, string[]> = {};
-  for (const r of rpRows.rows) (rolePermissions[r.role] ??= []).push(r.permission);
+  for (const r of grantRows.rows) {
+    rolePermissions[r.role] = r.permissions ?? [];
+  }
 
   let grants: RoleGrant[] = grantRows.rows.map((r) => ({ role: r.role, scope: r.scope }));
   let implicitDefault = false;
 
   if (grants.length === 0) {
-    const defaults = await db.query(`SELECT role, default_scope FROM app_roles WHERE app_id=$1 AND is_default`, [appId]);
+    const defaults = await db.query<{ role: string; permissions: string[]; default_scope: Record<string, string> }>(
+      `SELECT role, permissions, default_scope FROM app_roles WHERE app_id = $1 AND is_default = true`,
+      [appId],
+    );
     if (defaults.rows.length) {
-      const u = (await db.query(`SELECT * FROM users WHERE id=$1`, [userId])).rows[0];
+      const u = (await db.query(`SELECT * FROM users WHERE id = $1`, [userId])).rows[0];
       grants = defaults.rows.map((d) => {
+        rolePermissions[d.role] = d.permissions ?? [];
         const scope: Scope = {};
-        for (const [k, field] of Object.entries((d.default_scope ?? {}) as Record<string, string>)) {
+        for (const [k, field] of Object.entries(d.default_scope ?? {})) {
           if (FORBIDDEN_SCOPE_KEYS.has(k) || !SAFE_DEFAULT_SCOPE_FIELDS.has(field)) continue;
           if (u?.[field] != null) scope[k] = u[field];
         }
@@ -158,7 +161,8 @@ export async function resolveForApp(userId: string, appId: string, db: Queryable
       implicitDefault = true;
     }
   }
-  return { ...resolveEffective({ grants, rolePermissions, overrides: ovRows.rows }), implicitDefault };
+
+  return { ...resolveEffective({ grants, rolePermissions, overrides: [] }), implicitDefault };
 }
 
 export async function bumpAclVersion(userId: string, db: Queryable = pool): Promise<number> {

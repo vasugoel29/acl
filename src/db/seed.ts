@@ -3,6 +3,7 @@ import { pool, tx } from './pool.js';
 import { config } from '../config.js';
 import { newId } from '../util.js';
 import { isDomainAllowed } from '../auth/google.js';
+import { seedMasterData, backfillUserReferences } from './masterData.js';
 
 interface RoleDef {
   perms: string[];
@@ -59,22 +60,46 @@ export async function seed() {
         [app.id, app.name, app.redirectUris, config.internalAppId],
       );
       const isNew = res.rows[0]?.is_new ?? false;
-      if (isNew) {
-        const allPerms = new Set(Object.values(app.roles).flatMap((r) => r.perms));
-        for (const p of allPerms) {
-          await c.query(`INSERT INTO app_permissions (app_id,permission) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [app.id, p]);
-        }
-        for (const [role, def] of Object.entries(app.roles)) {
-          await c.query(
-            `INSERT INTO app_roles (app_id,role,description,is_default,default_scope) VALUES ($1,$2,$3,$4,$5)
-             ON CONFLICT (app_id,role) DO NOTHING`,
-            [app.id, role, def.description ?? null, def.isDefault ?? false, def.defaultScope ?? {}],
-          );
-          for (const p of def.perms) {
-            await c.query(`INSERT INTO role_permissions (app_id,role,permission) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [app.id, role, p]);
-          }
+      // Seed or update roles with permissions directly in app_roles
+      const catalog: Record<string, string> = {};
+      for (const [role, def] of Object.entries(app.roles)) {
+        await c.query(
+          `INSERT INTO app_roles (app_id, role, permissions, description, is_default, default_scope)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (app_id, role) DO UPDATE SET
+             permissions = EXCLUDED.permissions,
+             description = EXCLUDED.description,
+             is_default = EXCLUDED.is_default,
+             default_scope = EXCLUDED.default_scope`,
+          [app.id, role, def.perms, def.description ?? null, def.isDefault ?? false, def.defaultScope ?? {}],
+        );
+        for (const p of def.perms) {
+          catalog[p] = `${p} permission`;
         }
       }
+      await c.query(
+        `UPDATE applications
+         SET permissions_catalog = COALESCE(permissions_catalog, '{}'::jsonb) || $1::jsonb
+         WHERE id = $2`,
+        [JSON.stringify(catalog), app.id],
+      );
+
+      // Seed permissions into app_resources table
+      for (const [perm, desc] of Object.entries(catalog)) {
+        await c.query(
+          `INSERT INTO app_resources (app_id, permission, description)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (app_id, permission) DO UPDATE SET description = EXCLUDED.description`,
+          [app.id, perm, desc],
+        );
+      }
+    }
+
+    // Master reference data (departments, degrees, branches, programs, designations)
+    await seedMasterData(c);
+    const report = await backfillUserReferences(c);
+    if (report.unmapped.length) {
+      console.warn('master-data backfill: unmapped legacy values', report.unmapped);
     }
 
     // Bootstrap super admin

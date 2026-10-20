@@ -11,7 +11,9 @@ export interface UserRow {
   status: string;
   avatar_url: string | null;
   dept?: string | null;
+  dept_code?: string | null;
   branch?: string | null;
+  program_id?: number | null;
   degree?: string | null;
   roll_no?: string | null;
   twelve_digit_roll_no?: string | null;
@@ -23,6 +25,7 @@ export interface UserRow {
   batch_year?: number | null;
   employee_id?: string | null;
   designation?: string | null;
+  designation_code?: string | null;
   mobile_no?: string | null;
   acl_version?: number | null;
   google_sub?: string | null;
@@ -49,14 +52,36 @@ export function sanitizeUser(u: UserRow, includeSensitivePii = true) {
 }
 
 export async function academicOf(userId: string, includeSensitivePii = true) {
-  const u = (await pool.query(`SELECT * FROM users WHERE id=$1`, [userId])).rows[0];
+  const r = await pool.query(
+    `SELECT u.*,
+            d.name AS master_dept_name,
+            p.branch_code,
+            p.degree_code,
+            b.name AS master_branch_name,
+            deg.name AS master_degree_name,
+            des.name AS master_desig_name
+     FROM users u
+     LEFT JOIN departments d ON d.code = u.dept_code
+     LEFT JOIN programs p ON p.id = u.program_id
+     LEFT JOIN branches b ON b.code = p.branch_code
+     LEFT JOIN degrees deg ON deg.code = p.degree_code
+     LEFT JOIN designations des ON des.code = u.designation_code
+     WHERE u.id = $1`,
+    [userId],
+  );
+  const u = r.rows[0];
   if (!u) return null;
   return {
     roll_no: u.roll_no ?? null,
     twelve_digit_roll_no: includeSensitivePii && u.twelve_digit_roll_no ? String(u.twelve_digit_roll_no) : null,
-    degree: u.degree ?? null,
-    dept: u.dept ?? null,
-    branch: u.branch ?? null,
+    dept_code: u.dept_code ?? null,
+    program_id: u.program_id ?? null,
+    branch_code: u.branch_code ?? null,
+    degree_code: u.degree_code ?? null,
+    designation_code: u.designation_code ?? null,
+    degree: u.master_degree_name ?? u.degree ?? null,
+    dept: u.master_dept_name ?? u.dept ?? null,
+    branch: u.master_branch_name ?? u.branch ?? null,
     year: u.year ?? null,
     semester: u.semester ?? null,
     section: u.section ?? null,
@@ -65,7 +90,7 @@ export async function academicOf(userId: string, includeSensitivePii = true) {
     batch_no: u.batch_no ?? null,
     batch_year: u.batch_year ?? null,
     employee_id: u.employee_id ?? null,
-    designation: u.designation ?? null,
+    designation: u.master_desig_name ?? u.designation ?? null,
     mobile_no: includeSensitivePii ? (u.mobile_no ?? null) : null,
   };
 }

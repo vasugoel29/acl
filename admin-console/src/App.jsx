@@ -1693,14 +1693,14 @@ function Applications() {
             <div className="section-label">Roles &amp; Permissions</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
               {a.roles.map((r) => (
-                <div key={r.role} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '10px 12px', borderRadius: '8px' }}>
+                <div key={r.role} style={{ background: 'var(--surface-solid)', border: '1px solid var(--border-subtle)', padding: '10px 12px', borderRadius: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong style={{ fontSize: '13px', color: '#0f172a' }}>{r.role}</strong>
+                    <strong style={{ fontSize: '13px', color: 'var(--text-heading)' }}>{r.role}</strong>
                     {r.is_default && <span className="badge active">Default Role</span>}
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
                     {r.permissions.map((p) => (
-                      <span key={p} className="mono" style={{ fontSize: '11px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '2px 6px', borderRadius: '4px' }}>
+                      <span key={p} className="mono" style={{ fontSize: '11px', background: 'var(--accent-soft)', color: 'var(--accent-primary)', border: '1px solid var(--border-subtle)', padding: '2px 6px', borderRadius: '4px' }}>
                         {p}
                       </span>
                     ))}
@@ -1712,7 +1712,7 @@ function Applications() {
             <div className="section-label">Authorized Redirect URIs</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               {a.redirect_uris.map((uri) => (
-                <code key={uri} className="mono text-muted" style={{ fontSize: '11.5px', background: '#f8fafc', padding: '4px 8px', borderRadius: '4px', border: '1px solid #f1f5f9', wordBreak: 'break-all' }}>{uri}</code>
+                <code key={uri} className="mono text-muted" style={{ fontSize: '11.5px', background: 'var(--surface-solid)', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-subtle)', wordBreak: 'break-all' }}>{uri}</code>
               ))}
             </div>
           </div>

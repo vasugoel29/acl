@@ -17,6 +17,7 @@ interface AppDef {
   name: string;
   redirectUris: string[];
   roles: Record<string, RoleDef>;
+  resources?: Record<string, string>;
 }
 
 /** Starter catalog (spec Appendix A) plus the internal ACL app used by the admin console. */
@@ -40,11 +41,32 @@ export const CATALOG: AppDef[] = [
     clientId: 'CRAS',
     name: 'Campus Room Allocation System',
     redirectUris: ['http://localhost:3001/callback'],
+    resources: {
+      'cras.calendar': 'See the rooms calendar: availability and who holds a slot (never the purpose). Read-only on its own.',
+      'cras.timetable': 'See your own timetable: your section\'s classes, or the classes you teach.',
+      'cras.bookings': 'The Bookings tab and everything a booker does: request a room, manage transfers, reschedules, and cancellations.',
+      'cras.bookings.direct': 'Bookings take effect immediately with no faculty approval, including restricted rooms (committee rooms, auditorium).',
+      'cras.faculty_portal': 'Approve or reject booking requests, review class-cancellation requests, and manage personal classes.',
+      'cras.admin': 'Full Admin Console: Quick Book, timetable search/import/export, user/room management, analytics, and audit log.',
+    },
     roles: {
-      ADMIN: { perms: ['rooms:manage', 'timetable:import', 'audit:view', 'rooms:view'] },
-      FACULTY: { perms: ['halls:reserve', 'slots:cancel', 'rooms:view'] },
-      STUDENT_REP: { perms: ['rooms:book', 'bookings:transfer', 'rooms:view'] },
-      VIEWER: { perms: ['rooms:view', 'schedule:view'], isDefault: true },
+      ADMIN: {
+        perms: ['cras.calendar', 'cras.timetable', 'cras.bookings', 'cras.bookings.direct', 'cras.admin'],
+        description: 'Full CRAS Admin Console access',
+      },
+      FACULTY: {
+        perms: ['cras.calendar', 'cras.timetable', 'cras.bookings.direct', 'cras.faculty_portal'],
+        description: 'Faculty Portal and direct room bookings without approval',
+      },
+      STUDENT_REP: {
+        perms: ['cras.calendar', 'cras.timetable', 'cras.bookings'],
+        description: 'Class representative room bookings and timetable',
+      },
+      VIEWER: {
+        perms: ['cras.calendar', 'cras.timetable'],
+        isDefault: true,
+        description: 'Default student and viewer calendar and timetable access',
+      },
     },
   },
 ];
@@ -66,7 +88,7 @@ export async function seed() {
       );
       const isNew = res.rows[0]?.is_new ?? false;
       // Seed or update roles with permissions directly in app_roles
-      const catalog: Record<string, string> = {};
+      const catalog: Record<string, string> = { ...(app.resources || {}) };
       for (const [role, def] of Object.entries(app.roles)) {
         await c.query(
           `INSERT INTO app_roles (app_id, role, permissions, description, is_default, default_scope)
@@ -79,15 +101,25 @@ export async function seed() {
           [app.id, role, def.perms, def.description ?? null, def.isDefault ?? false, def.defaultScope ?? {}],
         );
         for (const p of def.perms) {
-          catalog[p] = `${p} permission`;
+          if (!catalog[p]) catalog[p] = `${p} permission`;
         }
       }
-      await c.query(
-        `UPDATE applications
-         SET permissions_catalog = COALESCE(permissions_catalog, '{}'::jsonb) || $1::jsonb
-         WHERE id = $2`,
-        [JSON.stringify(catalog), app.id],
-      );
+      if (app.clientId === 'CRAS') {
+        await c.query(
+          `UPDATE applications
+           SET permissions_catalog = $1::jsonb
+           WHERE id = $2`,
+          [JSON.stringify(catalog), app.id],
+        );
+        await c.query(`DELETE FROM app_resources WHERE app_id = $1 AND permission NOT LIKE 'cras.%'`, [app.id]);
+      } else {
+        await c.query(
+          `UPDATE applications
+           SET permissions_catalog = COALESCE(permissions_catalog, '{}'::jsonb) || $1::jsonb
+           WHERE id = $2`,
+          [JSON.stringify(catalog), app.id],
+        );
+      }
 
       // Seed permissions into app_resources table
       for (const [perm, desc] of Object.entries(catalog)) {

@@ -56,7 +56,7 @@ describe('login flow', () => {
     if (r.stage !== 'done') throw new Error('login failed');
     const claims = await verifyJwt(r.tokens.access_token, 'CRAS');
     expect(claims.role).toBe('VIEWER');
-    expect(claims.permissions).toEqual(['rooms:view', 'schedule:view']);
+    expect(claims.permissions).toEqual(['cras.calendar', 'cras.timetable']);
     expect(claims.aud).toBe('CRAS');
     await expect(verifyJwt(r.tokens.access_token, 'OTHER')).rejects.toThrow(); // audience-bound
     expect(r.state).toBe(r.sentState);
@@ -182,7 +182,7 @@ describe('ACL assignment end-to-end', () => {
     if (r.stage !== 'done') throw new Error('x');
     const c = await verifyJwt(r.tokens.access_token, 'CRAS');
     expect(c.role).toBe('VIEWER');
-    expect(c.permissions).toEqual(['rooms:view', 'schedule:view']);
+    expect(c.permissions).toEqual(['cras.calendar', 'cras.timetable']);
   });
 
   let assignmentId: string;
@@ -201,7 +201,7 @@ describe('ACL assignment end-to-end', () => {
     if (after.stage !== 'done') throw new Error('x');
     const c = await verifyJwt(after.tokens.access_token, 'CRAS');
     expect(c.role).toBe('STUDENT_REP');
-    expect(c.permissions).toEqual(['bookings:transfer', 'rooms:book', 'rooms:view']);
+    expect(c.permissions).toEqual(['cras.bookings', 'cras.calendar', 'cras.timetable']);
     expect(c.scope).toEqual({ branch: 'CSAI', section: 1, semester: 6 });
 
     const ui = await app.inject({ url: '/userinfo', headers: auth(after.tokens.access_token) });
@@ -492,7 +492,7 @@ describe('enterprise security, injection & DPDP controls', () => {
       roles: [
         {
           role: 'VIEWER',
-          permissions: ['rooms:view'],
+          permissions: ['cras.calendar'],
           is_default: true,
           default_scope: { leaked_phone: 'mobile_no' },
         },

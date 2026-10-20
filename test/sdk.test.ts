@@ -27,8 +27,8 @@ describe('sdk', () => {
     const other = createAclClient({ issuer: 'http://localhost:4000', appId: 'OTHER', jwks });
 
     const claims = await cras.verify(r.tokens.access_token);
-    expect(cras.hasPermission(claims, 'rooms:view')).toBe(true);
-    expect(cras.hasPermission(claims, 'rooms:book')).toBe(false);
+    expect(cras.hasPermission(claims, 'cras.calendar')).toBe(true);
+    expect(cras.hasPermission(claims, 'cras.bookings')).toBe(false);
     expect(cras.inScope(claims, { branch: 'CSAI' })).toBe(true); // no scope => unrestricted
     await expect(other.verify(r.tokens.access_token)).rejects.toBeInstanceOf(AclError);
     await expect(cras.verify(r.tokens.access_token + 'x')).rejects.toBeInstanceOf(AclError);
@@ -41,7 +41,7 @@ describe('sdk', () => {
 
     const sent: any = {};
     const res: any = { status: (c: number) => ({ json: (b: unknown) => Object.assign(sent, { c, b }) }), json: () => {} };
-    await cras.requirePermission('rooms:book')(req, res, () => {});
+    await cras.requirePermission('cras.bookings')(req, res, () => {});
     expect(sent.c).toBe(403);
   });
 

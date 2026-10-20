@@ -934,7 +934,7 @@ export async function adminRoutes(app: FastifyInstance) {
       need(req, 'apps:manage');
       const appId = await resolveAppId(rawApp);
       if (appId === config.internalAppId) need(req, 'admin:all');
-      const b = z.object({ permissions: z.array(z.object({ permission: z.string().regex(/^[a-z_]+:[a-z_]+$/), description: z.string().optional() })) }).parse(req.body);
+      const b = z.object({ permissions: z.array(z.object({ permission: z.string().regex(/^[a-z0-9_]+([.:][a-z0-9_]+)+$/), description: z.string().optional() })) }).parse(req.body);
       await tx(async (c) => {
         for (const p of b.permissions) {
           await c.query(`INSERT INTO app_resources (app_id,permission,description) VALUES ($1,$2,$3)
@@ -1018,7 +1018,7 @@ export async function adminRoutes(app: FastifyInstance) {
       need(req, 'apps:manage');
       const b = z.object({
         app_id: z.string(),
-        permission: z.string().regex(/^[a-z0-9_]+:[a-z0-9_]+$/),
+        permission: z.string().regex(/^[a-z0-9_]+([.:][a-z0-9_]+)+$/),
         description: z.string().optional(),
       }).parse(req.body);
 

@@ -1830,8 +1830,8 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
   const handleCreateResource = async (e) => {
     e.preventDefault();
     const perm = newResourceKey.trim().toLowerCase();
-    if (!perm || !perm.includes(':')) {
-      setError('Resource key must follow format resource:action (e.g. rooms:book)');
+    if (!perm || (!perm.includes(':') && !perm.includes('.'))) {
+      setError('Resource key must follow format resource:action or namespace.action (e.g. rooms:book, cras.calendar)');
       return;
     }
     setError('');
@@ -2313,8 +2313,8 @@ function AddResourceModal({ apps, onClose }) {
   const submit = async (e) => {
     e.preventDefault();
     const formatted = resource.trim().toLowerCase();
-    if (!formatted.includes(':')) {
-      setError('Resource key must follow format resource:action (e.g. rooms:book, events:create)');
+    if (!formatted.includes(':') && !formatted.includes('.')) {
+      setError('Resource key must follow format resource:action or namespace.action (e.g. rooms:book, cras.calendar)');
       return;
     }
     setError('');

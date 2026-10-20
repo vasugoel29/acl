@@ -1925,8 +1925,8 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                         style={{
                           padding: '10px 12px',
                           borderRadius: '8px',
-                          border: isSelected ? '1px solid #3b82f6' : '1px solid #e2e8f0',
-                          background: isSelected ? '#eff6ff' : '#ffffff',
+                          border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                          background: isSelected ? 'var(--accent-soft)' : 'var(--surface-solid)',
                           cursor: 'pointer',
                           display: 'flex',
                           justifyContent: 'space-between',
@@ -1935,10 +1935,10 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                         }}
                       >
                         <div>
-                          <strong style={{ fontSize: '13px', color: isSelected ? '#1d4ed8' : '#0f172a', display: 'block' }}>
+                          <strong style={{ fontSize: '13px', color: isSelected ? 'var(--accent-primary)' : 'var(--text-heading)', display: 'block' }}>
                             {r.role}
                           </strong>
-                          <span style={{ fontSize: '11px', color: '#64748b' }}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
                             {r.permissions.length} resource{r.permissions.length === 1 ? '' : 's'}
                           </span>
                         </div>
@@ -1952,8 +1952,8 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
               </div>
 
               {/* Add New Role input */}
-              <form onSubmit={handleAddRole} style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #e2e8f0' }}>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>
+              <form onSubmit={handleAddRole} style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--border-subtle)' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
                   Add Role
                 </label>
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -1978,16 +1978,16 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--card-border)', flexWrap: 'wrap', gap: '10px' }}>
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <h3 style={{ margin: 0, fontSize: '17px', color: '#0f172a' }}>{currentRole.role}</h3>
+                        <h3 style={{ margin: 0, fontSize: '17px', color: 'var(--text-heading)' }}>{currentRole.role}</h3>
                         {currentRole.is_default && <span className="badge active">Default Role</span>}
                       </div>
-                      <span style={{ fontSize: '12.5px', color: '#64748b' }}>
+                      <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                         Configure accessible resources for accounts with this role.
                       </span>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#475569', cursor: 'pointer' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                         <input
                           type="checkbox"
                           checked={currentRole.is_default}
@@ -2010,7 +2010,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
 
                   {/* Resource Permissions Header & Bulk Toggles */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)' }}>
                       Allowed Resources ({currentRole.permissions.length} of {appPermissions.length})
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
@@ -2026,7 +2026,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                   {/* Checklist of Resources */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
                     {appPermissions.length === 0 && (
-                      <div style={{ padding: '20px', color: '#94a3b8', fontSize: '12.5px', textAlign: 'center', gridColumn: 'span 2' }}>
+                      <div style={{ padding: '20px', color: 'var(--text-tertiary)', fontSize: '12.5px', textAlign: 'center', gridColumn: 'span 2' }}>
                         No resources registered for this application yet.
                       </div>
                     )}
@@ -2040,8 +2040,8 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                             alignItems: 'center',
                             gap: '8px',
                             padding: '8px 10px',
-                            background: isChecked ? '#eff6ff' : '#f8fafc',
-                            border: isChecked ? '1px solid #93c5fd' : '1px solid #e2e8f0',
+                            background: isChecked ? 'var(--accent-soft)' : 'var(--surface-solid)',
+                            border: isChecked ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
                             borderRadius: '8px',
                             cursor: 'pointer',
                             transition: 'all 0.15s ease',
@@ -2052,7 +2052,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                             checked={isChecked}
                             onChange={() => togglePermissionForCurrentRole(perm)}
                           />
-                          <span className="mono" style={{ fontSize: '11.5px', fontWeight: isChecked ? 600 : 400, color: isChecked ? '#1d4ed8' : '#334155' }}>
+                          <span className="mono" style={{ fontSize: '11.5px', fontWeight: isChecked ? 600 : 400, color: isChecked ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
                             {perm}
                           </span>
                         </label>
@@ -2061,7 +2061,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                   </div>
 
                   {/* Quick Add Resource to this app */}
-                  <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed #e2e8f0' }}>
+                  <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px dashed var(--border-subtle)' }}>
                     {!showAddResource ? (
                       <button
                         type="button"

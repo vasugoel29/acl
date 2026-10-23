@@ -31,6 +31,6 @@
     { "source": "/livez", "destination": "/api/index" },
     { "source": "/readyz", "destination": "/api/index" },
     { "source": "/healthz", "destination": "/api/index" },
-    { "source": "/((?!assets/|favicon\\.svg).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|.*\\.(?:png|jpg|jpeg|svg|ico|json|webmanifest|txt|xml|woff2?)).*)", "destination": "/index.html" }
   ]
 }

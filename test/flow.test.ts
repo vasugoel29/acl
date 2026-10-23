@@ -543,3 +543,134 @@ describe('enterprise security, injection & DPDP controls', () => {
   });
 });
 
+describe('user profile editing & identifier uniqueness', () => {
+  let u1Id: string;
+  let u2Id: string;
+
+  it('creates users and rejects duplicate email, roll_no (case-insensitive), and twelve_digit_roll_no', async () => {
+    const r1 = await adminCall('POST', '/v1/users', {
+      email: 'edit.one@nsut.ac.in',
+      name: 'Edit One',
+      roll_no: '2024UEV2831',
+      twelve_digit_roll_no: '202410322831',
+      dept_code: 'ECE',
+      degree_code: 'BTECH',
+      branch_code: 'ECVL',
+      semester: 4,
+      section: 1,
+      group_no: 2,
+      batch_year: 2024,
+    });
+    expect(r1.statusCode).toBe(201);
+    u1Id = r1.json().id;
+
+    // Duplicate email (case-insensitive)
+    const dupEmail = await adminCall('POST', '/v1/users', {
+      email: 'EDIT.ONE@nsut.ac.in',
+      name: 'Dup Email',
+    });
+    expect(dupEmail.statusCode).toBe(409);
+    expect(dupEmail.json().error).toMatch(/email/i);
+
+    // Duplicate roll_no (case-insensitive)
+    const dupRoll = await adminCall('POST', '/v1/users', {
+      email: 'unique.roll@nsut.ac.in',
+      name: 'Dup Roll',
+      roll_no: '2024uev2831',
+    });
+    expect(dupRoll.statusCode).toBe(409);
+    expect(dupRoll.json().error).toMatch(/roll number/i);
+
+    // Duplicate twelve_digit_roll_no
+    const dup12 = await adminCall('POST', '/v1/users', {
+      email: 'unique.12@nsut.ac.in',
+      name: 'Dup 12',
+      twelve_digit_roll_no: '202410322831',
+    });
+    expect(dup12.statusCode).toBe(409);
+    expect(dup12.json().error).toMatch(/12-digit roll number/i);
+
+    const r2 = await adminCall('POST', '/v1/users', {
+      email: 'edit.two@nsut.ac.in',
+      name: 'Edit Two',
+      roll_no: '2024UCS2900',
+      twelve_digit_roll_no: '202410322900',
+      dept_code: 'CSE',
+      degree_code: 'BTECH',
+      branch_code: 'CSAI',
+      semester: 2,
+    });
+    expect(r2.statusCode).toBe(201);
+    u2Id = r2.json().id;
+  });
+
+  it('edits user academic & master reference data and syncs GET /v1/users/:id', async () => {
+    const patchRes = await adminCall('PATCH', `/v1/users/${u1Id}`, {
+      name: 'Edit One Updated',
+      email: 'edit.one.renamed@nsut.ac.in',
+      roll_no: '2024uca2831',
+      twelve_digit_roll_no: '202410329999',
+      dept_code: 'CSE',
+      degree_code: 'BTECH',
+      branch_code: 'CSAI',
+      semester: 5,
+      section: null,
+      group_no: null,
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes = await adminCall('GET', `/v1/users/${u1Id}`);
+    expect(getRes.statusCode).toBe(200);
+    const body = getRes.json();
+    expect(body.name).toBe('Edit One Updated');
+    expect(body.email).toBe('edit.one.renamed@nsut.ac.in');
+    expect(body.academic).toMatchObject({
+      roll_no: '2024UCA2831',
+      twelve_digit_roll_no: '202410329999',
+      dept_code: 'CSE',
+      dept: 'Computer Science and Engineering',
+      degree_code: 'BTECH',
+      degree: 'B.Tech',
+      branch_code: 'CSAI',
+      branch: 'CSE (Artificial Intelligence)',
+      semester: 5,
+      year: 3,
+      section: null,
+      group_no: null,
+    });
+  });
+
+  it('prevents editing a user to another user email or roll number, while allowing saving own values', async () => {
+    // Saving own unchanged email and roll numbers succeeds
+    const selfSave = await adminCall('PATCH', `/v1/users/${u2Id}`, {
+      email: 'edit.two@nsut.ac.in',
+      roll_no: '2024ucs2900',
+      twelve_digit_roll_no: '202410322900',
+      name: 'Edit Two Self Saved',
+    });
+    expect(selfSave.statusCode).toBe(200);
+
+    // Colliding email with u1
+    const collideEmail = await adminCall('PATCH', `/v1/users/${u2Id}`, {
+      email: 'EDIT.ONE.RENAMED@nsut.ac.in',
+    });
+    expect(collideEmail.statusCode).toBe(409);
+    expect(collideEmail.json().error).toMatch(/email/i);
+
+    // Colliding roll_no with u1 (case-insensitive)
+    const collideRoll = await adminCall('PATCH', `/v1/users/${u2Id}`, {
+      roll_no: '2024uca2831',
+    });
+    expect(collideRoll.statusCode).toBe(409);
+    expect(collideRoll.json().error).toMatch(/roll number/i);
+
+    // Colliding twelve_digit_roll_no with u1
+    const collide12 = await adminCall('PATCH', `/v1/users/${u2Id}`, {
+      twelve_digit_roll_no: '202410329999',
+    });
+    expect(collide12.statusCode).toBe(409);
+    expect(collide12.json().error).toMatch(/12-digit roll number/i);
+  });
+});
+
+

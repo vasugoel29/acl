@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { pool, tx } from '../db/pool.js';
+import { pool, tx, type Queryable } from '../db/pool.js';
 import { config, isProd, isServerless } from '../config.js';
 import { redis, keys } from '../redis.js';
 import { newId, randomToken, safeCompareHex, sha256 } from '../util.js';
@@ -52,11 +52,14 @@ async function resolveAppId(rawIdOrSlug: string): Promise<string> {
 }
 
 const ALLOWED_USER_UPDATE_COLUMNS = new Set([
+  'email',
   'name',
   'status',
   'dept',
+  'dept_code',
   'branch',
   'degree',
+  'program_id',
   'roll_no',
   'twelve_digit_roll_no',
   'year',
@@ -67,8 +70,310 @@ const ALLOWED_USER_UPDATE_COLUMNS = new Set([
   'batch_year',
   'employee_id',
   'designation',
+  'designation_code',
   'mobile_no',
 ]);
+
+function normalizeNullableStr(val: string | null | undefined, upper = false): string | null | undefined {
+  if (val === undefined) return undefined;
+  if (val === null) return null;
+  const t = val.trim();
+  if (!t) return null;
+  return upper ? t.toUpperCase() : t;
+}
+
+const nullableIntSchema = z.preprocess((v) => {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t) return null;
+    const n = Number(t);
+    return Number.isNaN(n) ? v : n;
+  }
+  return v;
+}, z.number().int().nullable().optional());
+
+/**
+ * Ensures email, roll_no (case-insensitive), twelve_digit_roll_no, and employee_id (case-insensitive)
+ * are not already assigned to another user.
+ */
+async function assertUniqueUserIdentifiers(
+  c: Queryable,
+  fields: {
+    email?: string | null;
+    roll_no?: string | null;
+    twelve_digit_roll_no?: string | null;
+    employee_id?: string | null;
+  },
+  excludeUserId?: string,
+) {
+  if (fields.email) {
+    const r = await c.query(
+      `SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND ($2::text IS NULL OR id != $2) LIMIT 1`,
+      [fields.email, excludeUserId ?? null],
+    );
+    if (r.rowCount) {
+      throw new HttpError(409, `Email "${fields.email}" is already registered to another user`);
+    }
+  }
+  if (fields.roll_no) {
+    const r = await c.query(
+      `SELECT id FROM users WHERE UPPER(roll_no) = UPPER($1) AND ($2::text IS NULL OR id != $2) LIMIT 1`,
+      [fields.roll_no, excludeUserId ?? null],
+    );
+    if (r.rowCount) {
+      throw new HttpError(409, `Roll number "${fields.roll_no}" is already assigned to another user`);
+    }
+  }
+  if (fields.twelve_digit_roll_no) {
+    if (!/^\d+$/.test(fields.twelve_digit_roll_no)) {
+      throw new HttpError(400, '12-digit roll number must contain only digits');
+    }
+    const r = await c.query(
+      `SELECT id FROM users WHERE twelve_digit_roll_no = $1::bigint AND ($2::text IS NULL OR id != $2) LIMIT 1`,
+      [fields.twelve_digit_roll_no, excludeUserId ?? null],
+    );
+    if (r.rowCount) {
+      throw new HttpError(409, `12-digit roll number "${fields.twelve_digit_roll_no}" is already assigned to another user`);
+    }
+  }
+  if (fields.employee_id) {
+    const r = await c.query(
+      `SELECT id FROM users WHERE UPPER(employee_id) = UPPER($1) AND ($2::text IS NULL OR id != $2) LIMIT 1`,
+      [fields.employee_id, excludeUserId ?? null],
+    );
+    if (r.rowCount) {
+      throw new HttpError(409, `Employee ID "${fields.employee_id}" is already assigned to another user`);
+    }
+  }
+}
+
+/**
+ * Synchronizes master reference foreign keys (dept_code, program_id, designation_code)
+ * with legacy display columns (dept, degree, branch, designation) on user updates.
+ */
+async function resolveMasterAcademicColumns(
+  c: Queryable,
+  input: Record<string, any>,
+  existingUser?: UserRow | null,
+): Promise<Record<string, any>> {
+  const out: Record<string, any> = { ...input };
+  delete out.degree_code;
+  delete out.branch_code;
+
+  // 1. Department synchronization (dept_code <-> dept)
+  if (input.dept_code !== undefined) {
+    const code = normalizeNullableStr(input.dept_code, true);
+    if (!code) {
+      out.dept_code = null;
+      if (input.dept === undefined) out.dept = null;
+    } else {
+      const d = (
+        await c.query(`SELECT code, name FROM departments WHERE UPPER(code) = $1 OR LOWER(name) = LOWER($1) LIMIT 1`, [
+          code,
+        ])
+      ).rows[0];
+      if (!d) throw new HttpError(400, `Unknown department code: ${code}`);
+      out.dept_code = d.code;
+      if (input.dept === undefined) out.dept = d.name;
+    }
+  } else if (input.dept !== undefined) {
+    const deptVal = normalizeNullableStr(input.dept);
+    out.dept = deptVal;
+    if (!deptVal) {
+      out.dept_code = null;
+    } else {
+      const d = (
+        await c.query(
+          `SELECT code, name FROM departments WHERE LOWER(name) = LOWER($1) OR UPPER(code) = UPPER($1) LIMIT 1`,
+          [deptVal],
+        )
+      ).rows[0];
+      out.dept_code = d ? d.code : null;
+    }
+  }
+
+  // 2. Designation synchronization (designation_code <-> designation)
+  if (input.designation_code !== undefined) {
+    const code = normalizeNullableStr(input.designation_code, true);
+    if (!code) {
+      out.designation_code = null;
+      if (input.designation === undefined) out.designation = null;
+    } else {
+      const des = (
+        await c.query(
+          `SELECT code, name FROM designations WHERE UPPER(code) = $1 OR LOWER(name) = LOWER($1) LIMIT 1`,
+          [code],
+        )
+      ).rows[0];
+      if (!des) throw new HttpError(400, `Unknown designation code: ${code}`);
+      out.designation_code = des.code;
+      if (input.designation === undefined) out.designation = des.name;
+    }
+  } else if (input.designation !== undefined) {
+    const desVal = normalizeNullableStr(input.designation);
+    out.designation = desVal;
+    if (!desVal) {
+      out.designation_code = null;
+    } else {
+      const des = (
+        await c.query(
+          `SELECT code, name FROM designations WHERE LOWER(name) = LOWER($1) OR UPPER(code) = UPPER($1) LIMIT 1`,
+          [desVal],
+        )
+      ).rows[0];
+      out.designation_code = des ? des.code : null;
+    }
+  }
+
+  // 3. Program / Degree / Branch synchronization (program_id <-> degree_code/degree + branch_code/branch)
+  const hasProgramOrAcademicChange =
+    input.program_id !== undefined ||
+    input.degree_code !== undefined ||
+    input.branch_code !== undefined ||
+    input.degree !== undefined ||
+    input.branch !== undefined;
+
+  if (hasProgramOrAcademicChange) {
+    if (input.program_id !== undefined && input.degree_code === undefined && input.branch_code === undefined) {
+      if (input.program_id === null) {
+        out.program_id = null;
+      } else {
+        const p = (
+          await c.query(
+            `SELECT p.id, deg.name AS degree_name, b.name AS branch_name, b.dept_code, d.name AS dept_name
+               FROM programs p
+               JOIN degrees deg ON deg.code = p.degree_code
+               JOIN branches b ON b.code = p.branch_code
+               JOIN departments d ON d.code = b.dept_code
+              WHERE p.id = $1`,
+            [input.program_id],
+          )
+        ).rows[0];
+        if (!p) throw new HttpError(400, `Unknown program_id: ${input.program_id}`);
+        out.program_id = p.id;
+        if (input.degree === undefined) out.degree = p.degree_name;
+        if (input.branch === undefined) out.branch = p.branch_name;
+        if (input.dept_code === undefined && input.dept === undefined) {
+          out.dept_code = p.dept_code;
+          out.dept = p.dept_name;
+        }
+      }
+    } else {
+      // Determine current program's degree_code / branch_code if editing an existing user
+      let existingDegreeCode: string | null = null;
+      let existingBranchCode: string | null = null;
+      if (existingUser?.program_id) {
+        const curProg = (
+          await c.query(`SELECT degree_code, branch_code FROM programs WHERE id = $1`, [existingUser.program_id])
+        ).rows[0];
+        if (curProg) {
+          existingDegreeCode = curProg.degree_code;
+          existingBranchCode = curProg.branch_code;
+        }
+      }
+
+      let resolvedDegreeCode: string | null = existingDegreeCode;
+      if (input.degree_code !== undefined) {
+        const dc = normalizeNullableStr(input.degree_code, true);
+        if (!dc) {
+          resolvedDegreeCode = null;
+          if (input.degree === undefined) out.degree = null;
+        } else {
+          const deg = (
+            await c.query(`SELECT code, name FROM degrees WHERE UPPER(code) = $1 OR LOWER(name) = LOWER($1) LIMIT 1`, [
+              dc,
+            ])
+          ).rows[0];
+          if (!deg) throw new HttpError(400, `Unknown degree code: ${dc}`);
+          resolvedDegreeCode = deg.code;
+          if (input.degree === undefined) out.degree = deg.name;
+        }
+      } else if (input.degree !== undefined) {
+        const degVal = normalizeNullableStr(input.degree);
+        out.degree = degVal;
+        if (!degVal) {
+          resolvedDegreeCode = null;
+        } else {
+          const deg = (
+            await c.query(
+              `SELECT code, name FROM degrees WHERE LOWER(name) = LOWER($1) OR UPPER(code) = UPPER($1) LIMIT 1`,
+              [degVal],
+            )
+          ).rows[0];
+          resolvedDegreeCode = deg ? deg.code : null;
+        }
+      }
+
+      let resolvedBranchCode: string | null = existingBranchCode;
+      if (input.branch_code !== undefined) {
+        const bc = normalizeNullableStr(input.branch_code, true);
+        if (!bc) {
+          resolvedBranchCode = null;
+          if (input.branch === undefined) out.branch = null;
+        } else {
+          const br = (
+            await c.query(
+              `SELECT b.code, b.name, b.dept_code, d.name AS dept_name
+                 FROM branches b
+                 JOIN departments d ON d.code = b.dept_code
+                WHERE UPPER(b.code) = $1 OR LOWER(b.name) = LOWER($1)
+                LIMIT 1`,
+              [bc],
+            )
+          ).rows[0];
+          if (!br) throw new HttpError(400, `Unknown branch code: ${bc}`);
+          resolvedBranchCode = br.code;
+          if (input.branch === undefined) out.branch = br.name;
+          if (input.dept_code === undefined && input.dept === undefined) {
+            out.dept_code = br.dept_code;
+            out.dept = br.dept_name;
+          }
+        }
+      } else if (input.branch !== undefined) {
+        const brVal = normalizeNullableStr(input.branch);
+        out.branch = brVal;
+        if (!brVal) {
+          resolvedBranchCode = null;
+        } else {
+          const br = (
+            await c.query(
+              `SELECT code, name FROM branches WHERE LOWER(name) = LOWER($1) OR UPPER(code) = UPPER($1) LIMIT 1`,
+              [brVal],
+            )
+          ).rows[0];
+          resolvedBranchCode = br ? br.code : null;
+        }
+      }
+
+      // If degree_code or branch_code was explicitly passed, or if existing user had a program_id, sync program_id
+      const shouldSyncProgram =
+        input.degree_code !== undefined ||
+        input.branch_code !== undefined ||
+        existingUser?.program_id !== null && existingUser?.program_id !== undefined;
+
+      if (shouldSyncProgram) {
+        if (resolvedDegreeCode && resolvedBranchCode) {
+          const prog = (
+            await c.query(
+              `INSERT INTO programs (degree_code, branch_code)
+               VALUES ($1, $2)
+               ON CONFLICT (degree_code, branch_code) DO UPDATE SET status = programs.status
+               RETURNING id`,
+              [resolvedDegreeCode, resolvedBranchCode],
+            )
+          ).rows[0];
+          out.program_id = prog.id;
+        } else {
+          out.program_id = null;
+        }
+      }
+    }
+  }
+
+  return out;
+}
 
 function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, '\\$&');
@@ -178,7 +483,15 @@ export function registerErrorHandler(app: FastifyInstance) {
     if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message });
     if (err instanceof z.ZodError) return reply.code(400).send({ error: 'validation_error', issues: err.issues });
     if (err.validation) return reply.code(400).send({ error: 'validation_error', message: err.message });
-    if (err.code === '23505') return reply.code(409).send({ error: 'conflict', ...(isProd ? {} : { detail: err.detail }) });
+    if (err.code === '23505') {
+      const constraint = String(err.constraint || '');
+      let message = 'conflict';
+      if (constraint.includes('email')) message = 'Email is already registered to another user';
+      else if (constraint.includes('twelve_digit_roll_no')) message = '12-digit roll number is already assigned to another user';
+      else if (constraint.includes('roll_no')) message = 'Roll number is already assigned to another user';
+      else if (constraint.includes('employee_id')) message = 'Employee ID is already assigned to another user';
+      return reply.code(409).send({ error: message, ...(isProd ? {} : { detail: err.detail }) });
+    }
     if (err.code === '23503') return reply.code(400).send({ error: 'invalid_reference', ...(isProd ? {} : { detail: err.detail }) });
     if (err.code === '23514') return reply.code(400).send({ error: 'constraint_violation' });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: err.message });
@@ -436,8 +749,9 @@ export async function adminRoutes(app: FastifyInstance) {
       const [r, countRes] = await Promise.all([
         pool.query(
           `SELECT id, email, name, status,
-                  roll_no, twelve_digit_roll_no, dept, branch, degree,
-                  year, semester, section, group_no, batch_no, batch_year
+                  roll_no, twelve_digit_roll_no, dept, dept_code, branch, degree, program_id,
+                  year, semester, section, group_no, batch_no, batch_year,
+                  employee_id, designation, designation_code
              FROM users
             WHERE ($1::text IS NULL OR email ILIKE '%'||$1||'%' ESCAPE '\\' OR name ILIKE '%'||$1||'%' ESCAPE '\\' OR roll_no ILIKE '%'||$1||'%' ESCAPE '\\' OR twelve_digit_roll_no::text ILIKE '%'||$1||'%' ESCAPE '\\')
               AND ($2::text IS NULL OR dept ILIKE '%'||$2||'%' ESCAPE '\\' OR branch ILIKE '%'||$2||'%' ESCAPE '\\')
@@ -459,22 +773,27 @@ export async function adminRoutes(app: FastifyInstance) {
     });
 
     const userBody = z.object({
-      email: z.string().email(),
-      name: z.string().min(1),
-      dept: z.string().optional(),
-      branch: z.string().optional(),
-      degree: z.string().optional(),
-      roll_no: z.string().optional(),
-      twelve_digit_roll_no: z.string().optional(),
-      year: z.number().int().optional(),
-      semester: z.number().int().optional(),
-      section: z.number().int().optional(),
-      group_no: z.number().int().optional(),
-      batch_no: z.number().int().optional(),
-      batch_year: z.number().int().optional(),
-      employee_id: z.string().optional(),
-      designation: z.string().optional(),
-      mobile_no: z.string().optional(),
+      email: z.string().trim().email(),
+      name: z.string().trim().min(1),
+      dept: z.string().nullable().optional(),
+      dept_code: z.string().nullable().optional(),
+      branch: z.string().nullable().optional(),
+      branch_code: z.string().nullable().optional(),
+      degree: z.string().nullable().optional(),
+      degree_code: z.string().nullable().optional(),
+      program_id: nullableIntSchema,
+      roll_no: z.string().nullable().optional(),
+      twelve_digit_roll_no: z.string().nullable().optional(),
+      year: nullableIntSchema,
+      semester: nullableIntSchema,
+      section: nullableIntSchema,
+      group_no: nullableIntSchema,
+      batch_no: nullableIntSchema,
+      batch_year: nullableIntSchema,
+      employee_id: z.string().nullable().optional(),
+      designation: z.string().nullable().optional(),
+      designation_code: z.string().nullable().optional(),
+      mobile_no: z.string().nullable().optional(),
     });
 
     admin.post('/v1/users', async (req, reply) => {
@@ -485,32 +804,65 @@ export async function adminRoutes(app: FastifyInstance) {
         ...(raw.student ?? {}),
         ...(raw.faculty ?? {}),
       });
+      const email = b.email.trim().toLowerCase();
+      const name = b.name.trim();
+      const rollNo = normalizeNullableStr(b.roll_no, true) ?? null;
+      const twelveDigitRollNo = normalizeNullableStr(b.twelve_digit_roll_no) ?? null;
+      const employeeId = normalizeNullableStr(b.employee_id) ?? null;
+      const mobileNo = normalizeNullableStr(b.mobile_no) ?? null;
+
       const id = newId('usr');
       await tx(async (c) => {
+        await assertUniqueUserIdentifiers(c, {
+          email,
+          roll_no: rollNo,
+          twelve_digit_roll_no: twelveDigitRollNo,
+          employee_id: employeeId,
+        });
+
+        const resolved = await resolveMasterAcademicColumns(
+          c,
+          {
+            dept: b.dept,
+            dept_code: b.dept_code,
+            branch: b.branch,
+            branch_code: b.branch_code,
+            degree: b.degree,
+            degree_code: b.degree_code,
+            program_id: b.program_id,
+            designation: b.designation,
+            designation_code: b.designation_code,
+          },
+          null,
+        );
+
         await c.query(
           `INSERT INTO users (
-             id, email, name, dept, branch, degree, roll_no,
+             id, email, name, dept, dept_code, branch, degree, program_id, roll_no,
              twelve_digit_roll_no, year, semester, section, group_no, batch_no, batch_year,
-             employee_id, designation, mobile_no
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+             employee_id, designation, designation_code, mobile_no
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
           [
             id,
-            b.email.toLowerCase(),
-            b.name,
-            b.dept ?? null,
-            b.branch ?? null,
-            b.degree ?? null,
-            b.roll_no ? b.roll_no.toUpperCase() : null,
-            b.twelve_digit_roll_no ?? null,
+            email,
+            name,
+            resolved.dept ?? null,
+            resolved.dept_code ?? null,
+            resolved.branch ?? null,
+            resolved.degree ?? null,
+            resolved.program_id ?? null,
+            rollNo,
+            twelveDigitRollNo,
             b.year ?? null,
             b.semester ?? null,
             b.section ?? null,
             b.group_no ?? null,
             b.batch_no ?? null,
             b.batch_year ?? null,
-            b.employee_id ? b.employee_id.trim() : null,
-            b.designation ? b.designation.trim() : null,
-            b.mobile_no ? b.mobile_no.trim() : null,
+            employeeId,
+            resolved.designation ?? null,
+            resolved.designation_code ?? null,
+            mobileNo,
           ],
         );
         await audit({ actorId: req.admin!.userId, action: 'USER_CREATED', targetType: 'user', targetId: id, ip: req.ip }, c);
@@ -532,22 +884,28 @@ export async function adminRoutes(app: FastifyInstance) {
       need(req, 'users:write');
       const { id } = req.params as { id: string };
       const b = z.object({
-        name: z.string().min(1).optional(),
+        email: z.string().trim().email().optional(),
+        name: z.string().trim().min(1).optional(),
         status: z.enum(['ACTIVE', 'SUSPENDED', 'ARCHIVED']).optional(),
-        dept: z.string().optional(),
-        branch: z.string().optional(),
-        degree: z.string().optional(),
-        roll_no: z.string().optional(),
-        twelve_digit_roll_no: z.string().optional(),
-        year: z.number().int().optional(),
-        semester: z.number().int().optional(),
-        section: z.number().int().optional(),
-        group_no: z.number().int().optional(),
-        batch_no: z.number().int().optional(),
-        batch_year: z.number().int().optional(),
-        employee_id: z.string().optional(),
-        designation: z.string().optional(),
-        mobile_no: z.string().optional(),
+        dept: z.string().nullable().optional(),
+        dept_code: z.string().nullable().optional(),
+        branch: z.string().nullable().optional(),
+        branch_code: z.string().nullable().optional(),
+        degree: z.string().nullable().optional(),
+        degree_code: z.string().nullable().optional(),
+        program_id: nullableIntSchema,
+        roll_no: z.string().nullable().optional(),
+        twelve_digit_roll_no: z.string().nullable().optional(),
+        year: nullableIntSchema,
+        semester: nullableIntSchema,
+        section: nullableIntSchema,
+        group_no: nullableIntSchema,
+        batch_no: nullableIntSchema,
+        batch_year: nullableIntSchema,
+        employee_id: z.string().nullable().optional(),
+        designation: z.string().nullable().optional(),
+        designation_code: z.string().nullable().optional(),
+        mobile_no: z.string().nullable().optional(),
       }).parse(req.body);
 
       if (id === req.admin!.userId && b.status && b.status !== 'ACTIVE') throw new HttpError(400, 'cannot deactivate yourself');
@@ -577,19 +935,43 @@ export async function adminRoutes(app: FastifyInstance) {
         }
       }
 
-      const entries = Object.entries(b).filter(([, v]) => v !== undefined);
-      for (const [k] of entries) {
-        if (!ALLOWED_USER_UPDATE_COLUMNS.has(k)) {
-          throw new HttpError(400, `Invalid update column: ${k}`);
-        }
-      }
-      // Record only field names (not raw PII values like mobile_no) in the immutable audit log (DPDP compliance)
-      const auditMeta = {
-        updated_fields: entries.map(([k]) => k),
-        ...(b.status ? { status: b.status } : {}),
+      const normalizedPatch: Record<string, any> = {
+        ...b,
+        ...(b.email !== undefined ? { email: b.email.trim().toLowerCase() } : {}),
+        ...(b.name !== undefined ? { name: b.name.trim() } : {}),
+        ...(b.roll_no !== undefined ? { roll_no: normalizeNullableStr(b.roll_no, true) } : {}),
+        ...(b.twelve_digit_roll_no !== undefined ? { twelve_digit_roll_no: normalizeNullableStr(b.twelve_digit_roll_no) } : {}),
+        ...(b.employee_id !== undefined ? { employee_id: normalizeNullableStr(b.employee_id) } : {}),
+        ...(b.mobile_no !== undefined ? { mobile_no: normalizeNullableStr(b.mobile_no) } : {}),
       };
 
       await tx(async (c) => {
+        await assertUniqueUserIdentifiers(
+          c,
+          {
+            email: normalizedPatch.email,
+            roll_no: normalizedPatch.roll_no,
+            twelve_digit_roll_no: normalizedPatch.twelve_digit_roll_no,
+            employee_id: normalizedPatch.employee_id,
+          },
+          id,
+        );
+
+        const resolvedPatch = await resolveMasterAcademicColumns(c, normalizedPatch, found);
+        const entries = Object.entries(resolvedPatch).filter(([, v]) => v !== undefined);
+
+        for (const [k] of entries) {
+          if (!ALLOWED_USER_UPDATE_COLUMNS.has(k)) {
+            throw new HttpError(400, `Invalid update column: ${k}`);
+          }
+        }
+
+        // Record only field names (not raw PII values like mobile_no) in the immutable audit log (DPDP compliance)
+        const auditMeta = {
+          updated_fields: entries.map(([k]) => k),
+          ...(b.status ? { status: b.status } : {}),
+        };
+
         if (entries.length) {
           const sets = entries.map(([k], i) => `${k}=$${i + 2}`).join(', ');
           const vals = entries.map(([, v]) => v);

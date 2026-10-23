@@ -19,6 +19,7 @@ import {
   IconDatabase,
   IconSun,
   IconMoon,
+  IconEdit,
 } from './icons.jsx';
 
 function useTheme() {
@@ -1089,6 +1090,7 @@ function Directory() {
       {selectedUserId && (
         <UserSlideDrawer
           userId={selectedUserId}
+          onUpdated={loadUsers}
           onClose={() => { setSelectedUserId(null); loadUsers(); }}
         />
       )}
@@ -1129,7 +1131,7 @@ function formatScope(scope) {
   );
 }
 
-function UserSlideDrawer({ userId, onClose }) {
+function UserSlideDrawer({ userId, onUpdated, onClose }) {
   const [data, setData] = useState(null);
   const [apps, setApps] = useState([]);
   const [assigningApp, setAssigningApp] = useState(null);
@@ -1143,6 +1145,20 @@ function UserSlideDrawer({ userId, onClose }) {
   const [inlineError, setInlineError] = useState('');
   const [submittingRole, setSubmittingRole] = useState(false);
 
+  // Profile & Academic inline editor state
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState('');
+  const [refCatalog, setRefCatalog] = useState({
+    departments: [],
+    degrees: [],
+    branches: [],
+    designations: [],
+    loaded: false,
+  });
+
   const refresh = useCallback(async () => {
     const [acc, prof, appList] = await Promise.all([
       api(`/v1/users/${userId}/access`),
@@ -1154,12 +1170,135 @@ function UserSlideDrawer({ userId, onClose }) {
   }, [userId]);
 
   useEffect(() => {
+    setEditingProfile(false);
+    setEditError('');
+    setEditSuccess('');
     refresh();
   }, [refresh]);
+
+  const loadReferenceCatalog = useCallback(async () => {
+    if (refCatalog.loaded) return;
+    try {
+      const [deptsRes, degsRes, branchesRes, desigsRes] = await Promise.all([
+        api('/v1/departments?status=ACTIVE').catch(() => ({ departments: [] })),
+        api('/v1/degrees?status=ACTIVE').catch(() => ({ degrees: [] })),
+        api('/v1/branches?status=ACTIVE').catch(() => ({ branches: [] })),
+        api('/v1/designations?status=ACTIVE').catch(() => ({ designations: [] })),
+      ]);
+      setRefCatalog({
+        departments: deptsRes.departments || [],
+        degrees: degsRes.degrees || [],
+        branches: branchesRes.branches || [],
+        designations: desigsRes.designations || [],
+        loaded: true,
+      });
+    } catch {
+      /* ignore */
+    }
+  }, [refCatalog.loaded]);
+
+  const startEditingProfile = () => {
+    if (!data) return;
+    const prof = data.profile || {};
+    const acad = prof.academic || {};
+    const u = data.access?.user || {};
+    setEditForm({
+      name: prof.name ?? u.name ?? '',
+      email: prof.email ?? u.email ?? '',
+      roll_no: acad.roll_no ?? prof.roll_no ?? '',
+      twelve_digit_roll_no: acad.twelve_digit_roll_no ?? prof.twelve_digit_roll_no ?? '',
+      dept_code: acad.dept_code ?? prof.dept_code ?? '',
+      dept: acad.dept ?? prof.dept ?? '',
+      degree_code: acad.degree_code ?? '',
+      degree: acad.degree ?? prof.degree ?? '',
+      branch_code: acad.branch_code ?? '',
+      branch: acad.branch ?? prof.branch ?? '',
+      semester: acad.semester ?? prof.semester ?? '',
+      year: acad.year ?? prof.year ?? '',
+      section: acad.section ?? prof.section ?? '',
+      group_no: acad.group_no ?? prof.group_no ?? '',
+      batch_no: acad.batch_no ?? prof.batch_no ?? '',
+      batch_year: acad.batch_year ?? prof.batch_year ?? '',
+      employee_id: acad.employee_id ?? prof.employee_id ?? '',
+      designation_code: acad.designation_code ?? prof.designation_code ?? '',
+      designation: acad.designation ?? prof.designation ?? '',
+      mobile_no: acad.mobile_no ?? prof.mobile_no ?? '',
+    });
+    setEditError('');
+    setEditSuccess('');
+    setEditingProfile(true);
+    loadReferenceCatalog();
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setEditError('');
+    setEditSuccess('');
+    if (!editForm.name?.trim()) {
+      setEditError('Full name is required.');
+      return;
+    }
+    if (!editForm.email?.trim()) {
+      setEditError('Email address is required.');
+      return;
+    }
+    const clean12 = String(editForm.twelve_digit_roll_no ?? '').trim();
+    if (clean12 && !/^\d+$/.test(clean12)) {
+      setEditError('12-digit roll number must contain only digits.');
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const toIntOrNull = (val) => {
+        if (val === '' || val === null || val === undefined) return null;
+        const n = Number(val);
+        return Number.isNaN(n) ? null : n;
+      };
+
+      const payload = {
+        name: editForm.name.trim(),
+        email: editForm.email.trim().toLowerCase(),
+        roll_no: editForm.roll_no?.trim() ? editForm.roll_no.trim().toUpperCase() : null,
+        twelve_digit_roll_no: clean12 || null,
+        dept_code: editForm.dept_code || null,
+        dept: editForm.dept?.trim() || null,
+        degree_code: editForm.degree_code || null,
+        degree: editForm.degree?.trim() || null,
+        branch_code: editForm.branch_code || null,
+        branch: editForm.branch?.trim() || null,
+        semester: toIntOrNull(editForm.semester),
+        year: toIntOrNull(editForm.year),
+        section: toIntOrNull(editForm.section),
+        group_no: toIntOrNull(editForm.group_no),
+        batch_no: toIntOrNull(editForm.batch_no),
+        batch_year: toIntOrNull(editForm.batch_year),
+        employee_id: editForm.employee_id?.trim() || null,
+        designation_code: editForm.designation_code || null,
+        designation: editForm.designation?.trim() || null,
+        mobile_no: editForm.mobile_no?.trim() || null,
+      };
+
+      await api(`/v1/users/${userId}`, {
+        method: 'PATCH',
+        body: payload,
+      });
+
+      await refresh();
+      onUpdated?.();
+      setEditingProfile(false);
+      setEditSuccess('User profile and academic attributes updated.');
+      setTimeout(() => setEditSuccess(''), 4000);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const toggleStatus = async (newStatus) => {
     await api(`/v1/users/${userId}`, { method: 'PATCH', body: { status: newStatus } });
     refresh();
+    onUpdated?.();
   };
 
   const toggleAppAssign = (appKey) => {
@@ -1252,11 +1391,23 @@ function UserSlideDrawer({ userId, onClose }) {
     <div className="drawer-backdrop" onClick={onClose}>
       <div className="slide-drawer" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-header">
-          <div>
+          <div style={{ minWidth: 0 }}>
             <h2>{user.name}</h2>
             <div className="mono text-muted" style={{ fontSize: '12px' }}>{user.email}</div>
           </div>
-          <button className="btn sm" onClick={onClose}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            {!editingProfile && (
+              <button
+                type="button"
+                className="btn sm"
+                onClick={startEditingProfile}
+                title="Edit User Profile & Academic Attributes"
+              >
+                <IconEdit size={13} /> Edit
+              </button>
+            )}
+            <button className="btn sm" onClick={onClose}>✕</button>
+          </div>
         </div>
 
         <div className="drawer-content">
@@ -1267,24 +1418,355 @@ function UserSlideDrawer({ userId, onClose }) {
               </div>
             )}
 
-            <div className="section-label">Academic &amp; Profile Attributes</div>
-            <div className="meta-grid">
-              {data.profile.academic && Object.values(data.profile.academic).some((v) => v !== null && v !== undefined && v !== '') ? (
-                Object.entries(data.profile.academic)
-                  .filter(([, v]) => v !== null && v !== undefined && v !== '')
-                  .map(([k, v]) => (
-                    <div key={k} className="meta-item">
-                      <div className="meta-key">{k.replace(/_/g, ' ')}</div>
-                      <div className="meta-val">{String(v)}</div>
-                    </div>
-                  ))
-              ) : (
-                <div className="meta-item" style={{ gridColumn: 'span 2' }}>
-                  <div className="meta-key">Department</div>
-                  <div className="meta-val">{user.dept || 'General Staff / Central Admin'}</div>
-                </div>
+            {editSuccess && (
+              <div style={{ padding: '10px 14px', background: 'var(--emerald-bg)', border: '1px solid var(--emerald-border)', borderRadius: '10px', color: 'var(--emerald)', fontSize: '12.5px', fontWeight: 500, marginBottom: '14px' }}>
+                ✓ {editSuccess}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', gap: '8px' }}>
+              <div className="section-label" style={{ marginBottom: 0 }}>Academic &amp; Profile Attributes</div>
+              {!editingProfile && (
+                <button
+                  type="button"
+                  className="btn sm"
+                  style={{ padding: '3px 10px', fontSize: '11.5px', height: '26px' }}
+                  onClick={startEditingProfile}
+                >
+                  <IconEdit size={12} /> Edit Details
+                </button>
               )}
             </div>
+
+            {editingProfile ? (
+              <form
+                onSubmit={handleSaveProfile}
+                className="form-stack"
+                style={{
+                  background: 'var(--surface-hover)',
+                  border: '1px solid var(--card-border)',
+                  borderRadius: '14px',
+                  padding: '16px',
+                }}
+              >
+                <div className="form-row-2">
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Full Name *</label>
+                    <input
+                      className="input"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      value={editForm.name}
+                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Email Address *</label>
+                    <input
+                      type="email"
+                      className="input mono"
+                      style={{ height: '38px', fontSize: '12.5px', borderRadius: '8px' }}
+                      value={editForm.email}
+                      onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-2">
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Roll Number</label>
+                    <input
+                      className="input mono"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      placeholder="e.g. 2024UEV2831"
+                      value={editForm.roll_no}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase();
+                        const next = { ...editForm, roll_no: val };
+                        const m = val.match(/^(\d{4})/);
+                        if (m && !editForm.batch_year) {
+                          next.batch_year = Number(m[1]);
+                        }
+                        setEditForm(next);
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>12-Digit Roll Number</label>
+                    <input
+                      className="input mono"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      placeholder="e.g. 202410322831"
+                      value={editForm.twelve_digit_roll_no}
+                      onChange={(e) => setEditForm({ ...editForm, twelve_digit_roll_no: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-2">
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Department</label>
+                    <SearchableSelect
+                      options={[
+                        { value: '', label: 'None / Unassigned' },
+                        ...refCatalog.departments.map((d) => ({
+                          value: d.code,
+                          label: d.name,
+                          badge: d.code,
+                        })),
+                      ]}
+                      value={editForm.dept_code || ''}
+                      onChange={(code) => {
+                        const foundDept = refCatalog.departments.find((d) => d.code === code);
+                        setEditForm({
+                          ...editForm,
+                          dept_code: code || '',
+                          dept: foundDept ? foundDept.name : '',
+                        });
+                      }}
+                      placeholder={editForm.dept || 'Select Department…'}
+                      searchPlaceholder="Search department name or code…"
+                      triggerStyle={{ height: '38px', borderRadius: '8px', fontSize: '12.5px' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Degree</label>
+                    <SearchableSelect
+                      options={[
+                        { value: '', label: 'None / Unassigned' },
+                        ...refCatalog.degrees.map((deg) => ({
+                          value: deg.code,
+                          label: deg.name,
+                          badge: deg.code,
+                        })),
+                      ]}
+                      value={editForm.degree_code || ''}
+                      onChange={(code) => {
+                        const foundDeg = refCatalog.degrees.find((d) => d.code === code);
+                        setEditForm({
+                          ...editForm,
+                          degree_code: code || '',
+                          degree: foundDeg ? foundDeg.name : '',
+                        });
+                      }}
+                      placeholder={editForm.degree || 'Select Degree…'}
+                      searchPlaceholder="Search degree…"
+                      triggerStyle={{ height: '38px', borderRadius: '8px', fontSize: '12.5px' }}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-2">
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Branch / Stream</label>
+                    <SearchableSelect
+                      options={[
+                        { value: '', label: 'None / Unassigned' },
+                        ...refCatalog.branches.map((b) => ({
+                          value: b.code,
+                          label: b.name,
+                          badge: b.code,
+                          description: b.dept_name ? `${b.dept_name} (${b.dept_code})` : b.dept_code,
+                        })),
+                      ]}
+                      value={editForm.branch_code || ''}
+                      onChange={(code) => {
+                        const foundBranch = refCatalog.branches.find((b) => b.code === code);
+                        const next = {
+                          ...editForm,
+                          branch_code: code || '',
+                          branch: foundBranch ? foundBranch.name : '',
+                        };
+                        if (foundBranch?.dept_code) {
+                          next.dept_code = foundBranch.dept_code;
+                          next.dept = foundBranch.dept_name || next.dept;
+                        }
+                        setEditForm(next);
+                      }}
+                      placeholder={editForm.branch || 'Select Branch…'}
+                      searchPlaceholder="Search branch code or name…"
+                      triggerStyle={{ height: '38px', borderRadius: '8px', fontSize: '12.5px' }}
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <div>
+                      <label className="field-label" style={{ fontSize: '11.5px' }}>Semester</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="12"
+                        className="input"
+                        style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                        placeholder="1–10"
+                        value={editForm.semester}
+                        onChange={(e) => {
+                          const semVal = e.target.value;
+                          const computedYear = semVal ? Math.ceil(Number(semVal) / 2) : '';
+                          setEditForm({
+                            ...editForm,
+                            semester: semVal,
+                            year: computedYear,
+                          });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label" style={{ fontSize: '11.5px' }}>Year</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="6"
+                        className="input"
+                        style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                        placeholder="1–5"
+                        value={editForm.year}
+                        onChange={(e) => setEditForm({ ...editForm, year: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '8px' }}>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Section</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="input"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      value={editForm.section}
+                      onChange={(e) => setEditForm({ ...editForm, section: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Group No</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="input"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      value={editForm.group_no}
+                      onChange={(e) => setEditForm({ ...editForm, group_no: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Batch No</label>
+                    <input
+                      type="number"
+                      min="1"
+                      className="input"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      value={editForm.batch_no}
+                      onChange={(e) => setEditForm({ ...editForm, batch_no: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Batch Year</label>
+                    <input
+                      type="number"
+                      min="2000"
+                      max="2100"
+                      className="input"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      placeholder="2024"
+                      value={editForm.batch_year}
+                      onChange={(e) => setEditForm({ ...editForm, batch_year: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row-2">
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Employee ID (Faculty / Staff)</label>
+                    <input
+                      className="input mono"
+                      style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                      placeholder="Optional"
+                      value={editForm.employee_id}
+                      onChange={(e) => setEditForm({ ...editForm, employee_id: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="field-label" style={{ fontSize: '11.5px' }}>Designation</label>
+                    <SearchableSelect
+                      options={[
+                        { value: '', label: 'None / Student' },
+                        ...refCatalog.designations.map((des) => ({
+                          value: des.code,
+                          label: des.name,
+                          badge: des.category,
+                        })),
+                      ]}
+                      value={editForm.designation_code || ''}
+                      onChange={(code) => {
+                        const foundDes = refCatalog.designations.find((d) => d.code === code);
+                        setEditForm({
+                          ...editForm,
+                          designation_code: code || '',
+                          designation: foundDes ? foundDes.name : '',
+                        });
+                      }}
+                      placeholder={editForm.designation || 'None / Student'}
+                      searchPlaceholder="Search designation…"
+                      triggerStyle={{ height: '38px', borderRadius: '8px', fontSize: '12.5px' }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="field-label" style={{ fontSize: '11.5px' }}>Mobile Number</label>
+                  <input
+                    className="input mono"
+                    style={{ height: '38px', fontSize: '13px', borderRadius: '8px' }}
+                    placeholder="Optional contact number"
+                    value={editForm.mobile_no}
+                    onChange={(e) => setEditForm({ ...editForm, mobile_no: e.target.value })}
+                  />
+                </div>
+
+                {editError && (
+                  <div style={{ padding: '10px 12px', background: 'var(--rose-bg)', border: '1px solid var(--rose-border)', borderRadius: '8px', color: 'var(--rose)', fontSize: '12px', fontWeight: 500 }}>
+                    {editError}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '4px' }}>
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onClick={() => {
+                      setEditingProfile(false);
+                      setEditError('');
+                    }}
+                    disabled={savingProfile}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn primary sm" disabled={savingProfile}>
+                    {savingProfile ? 'Saving Changes…' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="meta-grid">
+                {data.profile.academic && Object.values(data.profile.academic).some((v) => v !== null && v !== undefined && v !== '') ? (
+                  Object.entries(data.profile.academic)
+                    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+                    .map(([k, v]) => (
+                      <div key={k} className="meta-item">
+                        <div className="meta-key">{k.replace(/_/g, ' ')}</div>
+                        <div className="meta-val">{String(v)}</div>
+                      </div>
+                    ))
+                ) : (
+                  <div className="meta-item" style={{ gridColumn: 'span 2' }}>
+                    <div className="meta-key">Department</div>
+                    <div className="meta-val">{user.dept || 'General Staff / Central Admin'}</div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div style={{ marginTop: '16px' }}>
               {user.status === 'ACTIVE' ? (
@@ -3112,7 +3594,11 @@ function CreateIdentityModal({ onClose }) {
               </div>
             </div>
 
-            {error && <div style={{ color: '#fca5a5', fontSize: '12px' }}>{error}</div>}
+            {error && (
+              <div style={{ padding: '10px 12px', background: 'var(--rose-bg)', border: '1px solid var(--rose-border)', borderRadius: '8px', color: 'var(--rose)', fontSize: '12px', fontWeight: 500 }}>
+                {error}
+              </div>
+            )}
           </div>
           <div className="modal-footer">
             <button type="button" className="btn sm" onClick={() => onClose(false)}>Cancel</button>
@@ -3192,7 +3678,11 @@ function RegisterAppModal({ onClose }) {
               <span>Confidential Client (issues a client secret for backend token verification)</span>
             </label>
 
-            {error && <div style={{ color: '#fca5a5', fontSize: '12px' }}>{error}</div>}
+            {error && (
+              <div style={{ padding: '10px 12px', background: 'var(--rose-bg)', border: '1px solid var(--rose-border)', borderRadius: '8px', color: 'var(--rose)', fontSize: '12px', fontWeight: 500 }}>
+                {error}
+              </div>
+            )}
           </div>
           <div className="modal-footer">
             <button type="button" className="btn sm" onClick={() => onClose(null)}>Cancel</button>

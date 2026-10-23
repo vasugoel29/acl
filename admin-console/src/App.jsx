@@ -1302,7 +1302,9 @@ function UserSlideDrawer({ userId, onClose }) {
           <div className="drawer-section">
             <div className="section-label">Application Permissions &amp; Scopes</div>
             {data.access.access.map((appAccess) => {
-              const appDef = apps.find((a) => a.id === appAccess.app);
+              const appDef = apps.find(
+                (a) => a.id === appAccess.app_id || a.client_id === appAccess.app || a.id === appAccess.app
+              );
               const availableRoles = appDef?.roles ?? [];
 
               return (
@@ -1524,8 +1526,9 @@ function UserSlideDrawer({ userId, onClose }) {
                             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px' }}>
                               <div style={{ fontSize: '11px', color: '#475569', marginBottom: '6px' }}>Select applications this administrator can manage:</div>
                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                {apps.filter((a) => a.id !== 'ACL').map((a) => {
-                                  const checked = scopeSelectedApps.includes(a.id);
+                                {apps.filter((a) => (a.client_id || a.id) !== 'ACL').map((a) => {
+                                  const appKey = a.client_id || a.id;
+                                  const checked = scopeSelectedApps.includes(appKey);
                                   return (
                                     <label
                                       key={a.id}
@@ -1547,12 +1550,12 @@ function UserSlideDrawer({ userId, onClose }) {
                                         type="checkbox"
                                         checked={checked}
                                         onChange={(e) => {
-                                          if (e.target.checked) setScopeSelectedApps([...scopeSelectedApps, a.id]);
-                                          else setScopeSelectedApps(scopeSelectedApps.filter((id) => id !== a.id));
+                                          if (e.target.checked) setScopeSelectedApps([...scopeSelectedApps, appKey]);
+                                          else setScopeSelectedApps(scopeSelectedApps.filter((id) => id !== appKey));
                                         }}
                                         style={{ margin: 0 }}
                                       />
-                                      {a.id} ({a.name})
+                                      {appKey} ({a.name})
                                     </label>
                                   );
                                 })}
@@ -1891,7 +1894,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
         <div className="modal-header">
           <div>
             <h2 style={{ margin: 0, fontSize: '18px', color: '#0f172a' }}>
-              Manage Roles &amp; Permissions · {app.id}
+              Manage Roles &amp; Permissions · {app.client_id || app.id}
             </h2>
             <div className="text-muted" style={{ fontSize: '12px', marginTop: '2px' }}>
               {app.name}
@@ -2069,12 +2072,12 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                         style={{ fontSize: '11.5px', gap: '4px' }}
                         onClick={() => setShowAddResource(true)}
                       >
-                        <IconPlus size={12} /> Add New Resource to {app.id}
+                        <IconPlus size={12} /> Add New Resource to {app.client_id || app.id}
                       </button>
                     ) : (
                       <form onSubmit={handleCreateResource} style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                         <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#1e3a8a', marginBottom: '8px' }}>
-                          Add Resource to {app.id} (resource:action)
+                          Add Resource to {app.client_id || app.id} (resource:action)
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
                           <input
@@ -2166,7 +2169,12 @@ function ResourcesCatalog() {
     if (filterApp && r.app_id !== filterApp) return false;
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
-      return r.permission.toLowerCase().includes(q) || (r.description && r.description.toLowerCase().includes(q)) || r.app_id.toLowerCase().includes(q);
+      return (
+        r.permission.toLowerCase().includes(q) ||
+        (r.description && r.description.toLowerCase().includes(q)) ||
+        r.app_id.toLowerCase().includes(q) ||
+        (r.client_id && r.client_id.toLowerCase().includes(q))
+      );
     }
     return true;
   });
@@ -2229,7 +2237,7 @@ function ResourcesCatalog() {
           <SearchableSelect
             options={[
               { value: '', label: 'All Applications' },
-              ...apps.map((a) => ({ value: a.id, label: a.id, description: a.name })),
+              ...apps.map((a) => ({ value: a.id, label: a.client_id || a.id, description: a.name })),
             ]}
             value={filterApp}
             onChange={(val) => setFilterApp(val)}
@@ -2268,7 +2276,7 @@ function ResourcesCatalog() {
                   </td>
                   <td data-label="Application">
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                      <span className="badge blue">{r.app_id}</span>
+                      <span className="badge blue">{r.client_id || r.app_id}</span>
                       <span className="text-muted" style={{ fontSize: '12px' }}>{r.app_name}</span>
                     </div>
                   </td>
@@ -2345,7 +2353,7 @@ function AddResourceModal({ apps, onClose }) {
             <div>
               <label className="field-label">Target Application</label>
               <SearchableSelect
-                options={apps.map((a) => ({ value: a.id, label: a.id, description: a.name }))}
+                options={apps.map((a) => ({ value: a.id, label: a.client_id || a.id, description: a.name }))}
                 value={appId}
                 onChange={(val) => setAppId(val)}
                 placeholder="Select Application…"

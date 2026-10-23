@@ -1310,7 +1310,7 @@ function UserSlideDrawer({ userId, onClose }) {
               return (
                 <div key={appAccess.app} className="app-access-row">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-                    <div>
+                    <div style={{ minWidth: 0 }}>
                       <strong style={{ color: '#0f172a' }}>{appAccess.app}</strong> · <span className="text-muted">{appAccess.name}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -1581,7 +1581,7 @@ function UserSlideDrawer({ userId, onClose }) {
                           </div>
                         )}
 
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
                           <button className="btn primary sm" type="submit" disabled={submittingRole}>
                             {submittingRole ? 'Granting…' : 'Grant Role'}
                           </button>
@@ -1664,7 +1664,7 @@ function Applications() {
         {apps.map((a) => (
           <div key={a.id} className="table-card" style={{ padding: '22px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', minWidth: 0 }}>
                 <h3 style={{ margin: 0, fontSize: '16px', color: 'var(--text-heading)' }}>{a.name}</h3>
                 <span className="badge blue mono" style={{ fontSize: '11px', fontWeight: 600 }}>{a.client_id || a.id}</span>
                 <span className="mono text-muted" style={{ fontSize: '11px' }}>({a.id})</span>
@@ -1689,7 +1689,7 @@ function Applications() {
                 </button>
               </div>
             </div>
-            <div className="text-muted" style={{ fontSize: '12px', marginBottom: '16px' }}>
+            <div className="text-muted" style={{ fontSize: '12px', marginBottom: '16px', overflowWrap: 'anywhere', wordBreak: 'break-all' }}>
               Redirect URIs: <span className="mono">{a.redirect_uris?.join(', ')}</span>
             </div>
 
@@ -1962,12 +1962,12 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <input
                     className="input mono"
-                    style={{ height: '34px', fontSize: '12px', borderRadius: '6px' }}
+                    style={{ height: '34px', fontSize: '12px', borderRadius: '6px', minWidth: 0, flex: 1 }}
                     placeholder="e.g. DEAN, HOD"
                     value={newRoleName}
                     onChange={(e) => setNewRoleName(e.target.value)}
                   />
-                  <button type="submit" className="btn primary sm" style={{ height: '34px', padding: '0 10px' }}>
+                  <button type="submit" className="btn primary sm" style={{ height: '34px', padding: '0 10px', flexShrink: 0 }}>
                     +
                   </button>
                 </div>
@@ -1975,7 +1975,7 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
             </div>
 
             {/* Right: Selected Role Permissions & Resources Checklist */}
-            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minWidth: 0 }}>
               {currentRole ? (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--card-border)', flexWrap: 'wrap', gap: '10px' }}>
@@ -2027,9 +2027,9 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                   </div>
 
                   {/* Checklist of Resources */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 200px), 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto', paddingRight: '4px' }}>
                     {appPermissions.length === 0 && (
-                      <div style={{ padding: '20px', color: 'var(--text-tertiary)', fontSize: '12.5px', textAlign: 'center', gridColumn: 'span 2' }}>
+                      <div style={{ padding: '20px', color: 'var(--text-tertiary)', fontSize: '12.5px', textAlign: 'center', gridColumn: '1 / -1' }}>
                         No resources registered for this application yet.
                       </div>
                     )}
@@ -2048,14 +2048,16 @@ function EditAppRolesModal({ app, onClose, onSaved }) {
                             borderRadius: '8px',
                             cursor: 'pointer',
                             transition: 'all 0.15s ease',
+                            minWidth: 0,
                           }}
                         >
                           <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => togglePermissionForCurrentRole(perm)}
+                            style={{ flexShrink: 0 }}
                           />
-                          <span className="mono" style={{ fontSize: '11.5px', fontWeight: isChecked ? 600 : 400, color: isChecked ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
+                          <span className="mono" style={{ fontSize: '11.5px', fontWeight: isChecked ? 600 : 400, color: isChecked ? 'var(--accent-primary)' : 'var(--text-primary)', overflowWrap: 'anywhere' }}>
                             {perm}
                           </span>
                         </label>
@@ -2582,7 +2584,7 @@ function IngestionCenter() {
       {activeJob && (
         <div className="job-progress-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span className={`badge ${activeJob.type === 'IMPORT' ? 'blue' : activeJob.type === 'EXPORT' ? 'indigo' : 'active'}`}>
                   {activeJob.type}
@@ -2732,7 +2734,7 @@ function IngestionCenter() {
                         ) : j.status === 'FAILED' ? (
                           <div>
                             <span className="badge suspended">FAILED</span>
-                            <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '3px', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontSize: '11px', color: '#b91c1c', marginTop: '3px', maxWidth: '200px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                               {j.error_message || 'Execution error'}
                             </div>
                           </div>
@@ -3281,7 +3283,7 @@ function MasterReferenceView() {
 
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
-      <div className="view-header" style={{ marginBottom: '24px' }}>
+      <div className="page-header">
         <div>
           <h1 className="view-title">University Master Reference Data</h1>
           <p className="view-subtitle">
@@ -3328,8 +3330,8 @@ function MasterReferenceView() {
       </div>
 
       {/* Subtab Navigation and Search Strip */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
-        <div style={{ display: 'flex', gap: '4px', background: 'var(--bg-subtle)', padding: '4px', borderRadius: '10px' }}>
+      <div className="subtab-toolbar">
+        <div className="subtab-nav" role="tablist" aria-label="Master Reference Categories">
           {[
             { id: 'depts', label: `Departments (${(data.departments || []).length})` },
             { id: 'branches', label: `Branches (${(data.branches || []).length})` },
@@ -3339,28 +3341,20 @@ function MasterReferenceView() {
           ].map((t) => (
             <button
               key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={subTab === t.id}
+              className={`subtab-btn ${subTab === t.id ? 'active' : ''}`}
               onClick={() => { setSubTab(t.id); setSearch(''); }}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '8px',
-                border: 'none',
-                background: subTab === t.id ? 'var(--card-bg)' : 'transparent',
-                color: subTab === t.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                fontWeight: subTab === t.id ? 600 : 500,
-                fontSize: '12.5px',
-                cursor: 'pointer',
-                boxShadow: subTab === t.id ? 'var(--shadow-soft)' : 'none',
-                transition: 'all 0.15s ease',
-              }}
             >
               {t.label}
             </button>
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="subtab-actions">
           {['depts', 'branches', 'programs'].includes(subTab) && (
-            <div style={{ position: 'relative', width: '220px' }}>
+            <div className="subtab-search-wrap">
               <input
                 className="input"
                 style={{ height: '36px', paddingLeft: '30px', fontSize: '12.5px' }}
@@ -3387,11 +3381,11 @@ function MasterReferenceView() {
       </div>
 
       {/* Content Table Card */}
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="table-card">
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading reference tables…</div>
         ) : (
-          <div className="table-responsive">
+          <div className="table-scroll-wrap">
             {subTab === 'depts' && (
               <table className="data-table">
                 <thead>
@@ -3405,10 +3399,10 @@ function MasterReferenceView() {
                 <tbody>
                   {filteredDepts.map((d) => (
                     <tr key={d.code}>
-                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{d.code}</span></td>
-                      <td style={{ fontWeight: 500 }}>{d.name}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(d.user_count || 0).toLocaleString()}</td>
-                      <td style={{ textAlign: 'center' }}>
+                      <td data-label="Code"><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{d.code}</span></td>
+                      <td data-label="Department Name" style={{ fontWeight: 500 }}><span>{d.name}</span></td>
+                      <td data-label="Linked Users" style={{ textAlign: 'right', fontWeight: 600 }}><span>{(d.user_count || 0).toLocaleString()}</span></td>
+                      <td data-label="Status" style={{ textAlign: 'center' }}>
                         <span className={`badge ${d.status === 'ACTIVE' ? 'success' : 'muted'} sm`}>
                           {d.status}
                         </span>
@@ -3433,11 +3427,11 @@ function MasterReferenceView() {
                 <tbody>
                   {filteredBranches.map((b) => (
                     <tr key={b.code}>
-                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{b.code}</span></td>
-                      <td><span className="badge neutral sm">{b.dept_code}</span></td>
-                      <td style={{ fontWeight: 500 }}>{b.name}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(b.student_count || 0).toLocaleString()}</td>
-                      <td style={{ textAlign: 'center' }}>
+                      <td data-label="Branch Code"><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{b.code}</span></td>
+                      <td data-label="Department"><span className="badge neutral sm">{b.dept_code}</span></td>
+                      <td data-label="Branch / Stream" style={{ fontWeight: 500 }}><span>{b.name}</span></td>
+                      <td data-label="Students" style={{ textAlign: 'right', fontWeight: 600 }}><span>{(b.student_count || 0).toLocaleString()}</span></td>
+                      <td data-label="Status" style={{ textAlign: 'center' }}>
                         <span className={`badge ${b.status === 'ACTIVE' ? 'success' : 'muted'} sm`}>
                           {b.status}
                         </span>
@@ -3463,12 +3457,12 @@ function MasterReferenceView() {
                 <tbody>
                   {filteredPrograms.map((p) => (
                     <tr key={p.id}>
-                      <td className="mono" style={{ color: '#64748b' }}>#{p.id}</td>
-                      <td><span className="badge primary sm" style={{ fontWeight: 600 }}>{p.degree_code}</span></td>
-                      <td><span className="badge neutral sm">{p.branch_code}</span></td>
-                      <td style={{ fontWeight: 500 }}>{p.degree_name} in {p.branch_name}</td>
-                      <td>{p.duration_years ? `${p.duration_years} yrs` : 'Research'}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(p.student_count || 0).toLocaleString()}</td>
+                      <td data-label="ID" className="mono" style={{ color: '#64748b' }}><span>#{p.id}</span></td>
+                      <td data-label="Degree"><span className="badge primary sm" style={{ fontWeight: 600 }}>{p.degree_code}</span></td>
+                      <td data-label="Branch"><span className="badge neutral sm">{p.branch_code}</span></td>
+                      <td data-label="Program Title" style={{ fontWeight: 500 }}><span>{p.degree_name} in {p.branch_name}</span></td>
+                      <td data-label="Duration"><span>{p.duration_years ? `${p.duration_years} yrs` : 'Research'}</span></td>
+                      <td data-label="Enrolled" style={{ textAlign: 'right', fontWeight: 600 }}><span>{(p.student_count || 0).toLocaleString()}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -3489,19 +3483,19 @@ function MasterReferenceView() {
                 </thead>
                 <tbody>
                   {(data.terms || []).map((t) => (
-                    <tr key={t.code} style={{ background: t.is_current ? '#f0fdf4' : 'transparent' }}>
-                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{t.code}</span></td>
-                      <td style={{ fontWeight: 600 }}>{t.name}</td>
-                      <td className="mono">{String(t.start_date).slice(0, 10)}</td>
-                      <td className="mono">{String(t.end_date).slice(0, 10)}</td>
-                      <td style={{ textAlign: 'center' }}>
+                    <tr key={t.code} style={{ background: t.is_current ? 'var(--emerald-bg)' : 'transparent' }}>
+                      <td data-label="Term Code"><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{t.code}</span></td>
+                      <td data-label="Term Name" style={{ fontWeight: 600 }}><span>{t.name}</span></td>
+                      <td data-label="Start Date" className="mono"><span>{String(t.start_date).slice(0, 10)}</span></td>
+                      <td data-label="End Date" className="mono"><span>{String(t.end_date).slice(0, 10)}</span></td>
+                      <td data-label="Current Active" style={{ textAlign: 'center' }}>
                         {t.is_current ? (
                           <span className="badge success sm" style={{ fontWeight: 700 }}>ACTIVE NOW</span>
                         ) : (
                           <span style={{ color: '#94a3b8', fontSize: '12px' }}>Inactive</span>
                         )}
                       </td>
-                      <td style={{ textAlign: 'right' }}>
+                      <td data-label="Action" style={{ textAlign: 'right' }}>
                         {!t.is_current && (
                           <button className="btn sm" onClick={() => activateTerm(t.code)}>
                             Set as Current
@@ -3528,15 +3522,15 @@ function MasterReferenceView() {
                 <tbody>
                   {(data.designations || []).map((d) => (
                     <tr key={d.code}>
-                      <td><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{d.code}</span></td>
-                      <td style={{ fontWeight: 500 }}>{d.name}</td>
-                      <td>
+                      <td data-label="Code"><span className="mono" style={{ fontWeight: 700, color: '#0f172a' }}>{d.code}</span></td>
+                      <td data-label="Designation Title" style={{ fontWeight: 500 }}><span>{d.name}</span></td>
+                      <td data-label="Category">
                         <span className={`badge ${d.category === 'FACULTY' ? 'primary' : 'neutral'} sm`}>
                           {d.category}
                         </span>
                       </td>
-                      <td className="mono">{d.rank}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{(d.user_count || 0).toLocaleString()}</td>
+                      <td data-label="Hierarchy Rank" className="mono"><span>{d.rank}</span></td>
+                      <td data-label="Assigned Staff" style={{ textAlign: 'right', fontWeight: 600 }}><span>{(d.user_count || 0).toLocaleString()}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -3583,8 +3577,8 @@ function CreateDeptModal({ onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal-card">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Add Department</h2>
           <button className="btn sm" onClick={onClose}>✕</button>
@@ -3647,8 +3641,8 @@ function CreateBranchModal({ departments, onClose, onSuccess }) {
   };
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal-card">
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Add Branch / Stream</h2>
           <button className="btn sm" onClick={onClose}>✕</button>
